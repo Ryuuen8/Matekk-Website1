@@ -1,9 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule, isObserveEnabled, ObserveInstrument } from './app.module.js';
 import { ValidationPipe } from '@nestjs/common';
-import { createRequire } from 'node:module';
-
-const helmet: typeof import('helmet').default = createRequire(import.meta.url)('helmet');
+import { default as helmet } from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create(
