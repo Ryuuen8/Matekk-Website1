@@ -89,31 +89,20 @@ export class EmailService {
         });
     }
 
-    /**
-     * Sends the OTP through the dedicated OTP template.
-     * The template must use {{{email_body}}} (triple braces) so the code box renders as HTML.
-     * Only HTML built here is passed in; never put user-supplied text into email_body.
-     */
+    /** Sends the OTP and expiry as separate fields for a styled email template. */
     async sendOtp(email: string, code: string, expiresInMinutes: number) {
-        // Defensive: the code must be exactly 6 digits before it goes into HTML
+        // Defensive: the code must be exactly 6 digits.
         if (!/^\d{6}$/.test(code)) {
             throw new InternalServerErrorException('Could not send email');
         }
 
-        const emailBody =
-            `Use this code to continue:` +
-            `<div style="margin:20px 0;padding:20px;background-color:#eff6ff;border:1px solid #bfdbfe;` +
-            `border-radius:12px;text-align:center;font-family:Menlo,Consolas,monospace;` +
-            `font-size:36px;font-weight:700;letter-spacing:10px;color:#0b0f1a;">${code}</div>` +
-            `It expires in <strong>${expiresInMinutes} minutes</strong> and can only be used once. ` +
-            `If you didn't request it, you can ignore this email.`;
-
-        await this.callEmailJs(this.getRequiredConfig('EMAILJS_USER_TEMPLATE_ID'), {
+        await this.callEmailJs(this.getRequiredConfig('EMAILJS_OTP_TEMPLATE_ID'), {
             email,
             to_email: email,
             to_name: 'there',
             email_title: 'Your verification code',
-            email_body: emailBody,
+            otp_code: code,
+            expires_in_minutes: String(expiresInMinutes),
             from_name: 'Matekk Cybercore',
             sender_name: 'Matekk Cybercore',
         });

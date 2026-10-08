@@ -47,8 +47,29 @@ Automatic registration and approval emails use EmailJS. Configure
 high-entropy secret for hashing stored OTP codes and short-lived registration
 verification proofs. Registration now requires the user to verify the email
 with a six-digit code before the account can be created, and sign-in requires
-a six-digit email code after the password is accepted. The OTP EmailJS
-template should render the `email_body` parameter as HTML. Set
+a six-digit email code after the password is accepted. In the OTP EmailJS
+template, style the code using `{{otp_code}}` and its expiry using
+`{{expires_in_minutes}}`; these are separate text values, not HTML. For
+example, replace the OTP template content with:
+
+```html
+<div style="margin:0;background:#f1f5f9;padding:32px 16px;font-family:Arial,sans-serif;color:#1e293b">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #dbe4f0;border-radius:16px;overflow:hidden">
+    <div style="height:6px;background:#1775ee"></div>
+    <div style="padding:32px">
+      <p style="margin:0 0 24px;color:#1775ee;font-size:13px;font-weight:bold;letter-spacing:1px">MATEKK CYBERCORE</p>
+      <h1 style="margin:0 0 16px;font-size:24px;color:#0f172a">{{email_title}}</h1>
+      <p style="margin:0 0 20px;font-size:15px;line-height:1.6">Hi {{to_name}}, use this code to continue:</p>
+      <div style="padding:18px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;text-align:center;color:#0f172a;font-family:Consolas,monospace;font-size:34px;font-weight:bold;letter-spacing:10px">{{otp_code}}</div>
+      <p style="margin:20px 0 0;font-size:14px;line-height:1.6;color:#475569">This code expires in <strong>{{expires_in_minutes}} minutes</strong> and can only be used once.</p>
+      <p style="margin:16px 0 0;font-size:13px;color:#64748b">If you didn't request this email, you can safely ignore it.</p>
+      <p style="margin:28px 0 0;font-size:14px">Best regards,<br><strong>{{from_name}}</strong></p>
+    </div>
+  </div>
+</div>
+```
+
+Set
 `FRONTEND_URL` to the deployed website origin so the administrator
 notification links to the correct request review page. Credentialed browser
 requests are allowed from the frontend origin
