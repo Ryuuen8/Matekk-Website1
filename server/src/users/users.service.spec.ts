@@ -162,6 +162,7 @@ describe('UsersService', () => {
         password: true,
         role: true,
         active_status: true,
+        sessionVersion: true,
         email: true,
         programs_enrolled: true,
         enrollments: {
@@ -186,6 +187,7 @@ describe('UsersService', () => {
       password: 'hashed',
       role: 'Student',
       active_status: true,
+      sessionVersion: 0,
       email: 'ccna@example.com',
       programs_enrolled: '',
       enrollments: [{
@@ -203,6 +205,7 @@ describe('UsersService', () => {
       password: 'hashed',
       role: 'Student',
       active_status: true,
+      sessionVersion: 0,
       pending_status: 'Active',
       email: 'ccna@example.com',
       module_enrolled: 'CCNA, CCNA Cybersecurity, CCNA Automation',
@@ -229,6 +232,31 @@ describe('UsersService', () => {
 
     const result = await service.findOne('module-student');
     expect(result?.module_enrolled).toBe('CCNA Automation');
+  });
+
+  it('loads the active session version when validating an authenticated user', async () => {
+    findUnique.mockResolvedValue({
+      id: 42,
+      username: 'student',
+      active_status: true,
+      sessionVersion: 7,
+    });
+
+    await expect(service.findAuthUserById(42)).resolves.toEqual({
+      userId: 42,
+      username: 'student',
+      active_status: true,
+      sessionVersion: 7,
+    });
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { id: 42 },
+      select: {
+        id: true,
+        username: true,
+        active_status: true,
+        sessionVersion: true,
+      },
+    });
   });
 
   it('approves an existing user', async () => {

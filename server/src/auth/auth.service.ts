@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { EmailService } from '../email/email.service.js';
 import { Prisma } from '../generated/prisma/client.js';
+import { OtpService } from './otp/otp.service.js';
 
 @Injectable()
 export class AuthService {
@@ -17,6 +18,7 @@ export class AuthService {
         private readonly passwords: PasswordService,
         private readonly prisma: PrismaService,
         private readonly emailService: EmailService,
+        private readonly otpService: OtpService,
     ) { }
 
     findRegistrationPrograms() {
@@ -30,6 +32,22 @@ export class AuthService {
             },
             orderBy: [{ training: { name: 'asc' } }, { name: 'asc' }],
         });
+    }
+
+    async requestRegistrationEmailOtp(email: string): Promise<void> {
+        const normalizedEmail = email.trim().toLowerCase();
+        const exists = await this.prisma.users.findFirst({
+            where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+            select: { id: true },
+        });
+        if (exists) {
+            throw new ConflictException('An account with this email already exists.');
+        }
+        await this.otpService.request(normalizedEmail, 'REGISTRATION');
+    }
+
+    verifyRegistrationEmail(email: string, code: string) {
+        return this.otpService.verify(email, 'REGISTRATION', code);
     }
 
     async register(dto: RegisterDto) {
@@ -46,6 +64,12 @@ export class AuthService {
             where: { OR: [{ username: { equals: normalizedUsername, mode: 'insensitive' } }, { email: { equals: normalizedEmail, mode: 'insensitive' } }] }
         });
         if (exists) throw new ConflictException('Username or email already in use');
+
+        await this.otpService.consumeVerification(
+            normalizedEmail,
+            'REGISTRATION',
+            dto.verificationToken,
+        );
 
         const password = await this.passwords.hash(dto.password);
 
@@ -117,9 +141,26 @@ export class AuthService {
             });
         }
 
-        const payload = { username: user.username, sub: user.userId };
+        const session = await this.prisma.users.update({
+            where: { id: user.userId },
+            data: { sessionVersion: { increment: 1 } },
+            select: { sessionVersion: true },
+        });
+        const payload = {
+            username: user.username,
+            sub: user.userId,
+            sessionVersion: session.sessionVersion,
+        };
 
         return { access_token: await this.jwtService.signAsync(payload), };
+    }
+
+    async invalidateSession(userId: number): Promise<void> {
+        await this.prisma.users.update({
+            where: { id: userId },
+            data: { sessionVersion: { increment: 1 } },
+            select: { id: true },
+        });
     }
 
     async getProfile(username: string) {
@@ -128,7 +169,7 @@ export class AuthService {
             throw new UnauthorizedException();
         }
 
-        const { password: _password, ...profile } = user;
+        const { password: _password, sessionVersion: _sessionVersion, ...profile } = user;
         return profile;
     }
 }

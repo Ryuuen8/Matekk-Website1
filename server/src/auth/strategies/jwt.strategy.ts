@@ -9,6 +9,7 @@ import type { Request } from 'express';
 interface JwtPayload {
   sub: number;
   username: string;
+  sessionVersion: number;
 }
 
 function isJwtPayload(payload: unknown): payload is JwtPayload {
@@ -16,7 +17,8 @@ function isJwtPayload(payload: unknown): payload is JwtPayload {
     payload === null ||
     typeof payload !== 'object' ||
     !('sub' in payload) ||
-    !('username' in payload)
+    !('username' in payload) ||
+    !('sessionVersion' in payload)
   ) {
     return false;
   }
@@ -26,7 +28,10 @@ function isJwtPayload(payload: unknown): payload is JwtPayload {
     Number.isSafeInteger(payload.sub) &&
     payload.sub > 0 &&
     typeof payload.username === 'string' &&
-    Boolean(payload.username.trim())
+    Boolean(payload.username.trim()) &&
+    typeof payload.sessionVersion === 'number' &&
+    Number.isSafeInteger(payload.sessionVersion) &&
+    payload.sessionVersion >= 0
   );
 }
 
@@ -56,7 +61,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     const user = await this.usersService.findAuthUserById(payload.sub);
-    if (!user || user.username !== payload.username) {
+    if (
+      !user ||
+      user.username !== payload.username ||
+      user.sessionVersion !== payload.sessionVersion
+    ) {
       throw new UnauthorizedException('Invalid token subject.');
     }
 

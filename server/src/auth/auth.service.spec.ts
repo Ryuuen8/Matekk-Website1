@@ -5,6 +5,7 @@ import { PasswordService } from './password.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { UsersService, type User } from '../users/users.service.js';
 import { EmailService } from '../email/email.service.js';
+import { OtpService } from './otp/otp.service.js';
 
 describe('AuthService', () => {
   const user: User = {
@@ -13,6 +14,7 @@ describe('AuthService', () => {
     password: 'plain-password',
     role: 'Student',
     active_status: false,
+    sessionVersion: 0,
   };
 
   function createService(options: {
@@ -28,20 +30,24 @@ describe('AuthService', () => {
     const needsRehash = vi.fn(() => options.needsRehash ?? false);
     const findFirst = vi.fn(async () => null);
     const create = vi.fn(async () => user);
-    const update = vi.fn(async () => user);
+    const update = vi.fn(async () => ({ sessionVersion: 1 }));
     const sendUserStatusEmail = vi.fn(async () => undefined);
     const sendAdminNotification = vi.fn(async () => undefined);
+    const request = vi.fn(async () => undefined);
+    const verifyEmail = vi.fn(async () => ({ verificationToken: 'v'.repeat(43) }));
+    const consumeVerification = vi.fn(async () => undefined);
     const service = new AuthService(
       { findOne } as unknown as UsersService,
       { signAsync } as unknown as import('@nestjs/jwt').JwtService,
       { hash, verify, needsRehash } as unknown as PasswordService,
       { users: { findFirst, create, update } } as unknown as PrismaService,
       { sendUserStatusEmail, sendAdminNotification } as unknown as EmailService,
+      { request, verify: verifyEmail, consumeVerification } as unknown as OtpService,
     );
 
     return {
       service, findOne, signAsync, hash, verify, needsRehash, findFirst, create, update,
-      sendUserStatusEmail, sendAdminNotification,
+      sendUserStatusEmail, sendAdminNotification, request, verifyEmail, consumeVerification,
     };
   }
 
@@ -51,6 +57,7 @@ describe('AuthService', () => {
     await expect(mocks.service.register({
       username: 'student',
       email: 'student@example.com',
+      verificationToken: 'v'.repeat(43),
       password: 'plain-password',
       programId: 4,
       firstName: 'Sample',
@@ -77,6 +84,11 @@ describe('AuthService', () => {
         enrollments: { create: { programId: 4 } },
       },
     });
+    expect(mocks.consumeVerification).toHaveBeenCalledWith(
+      'student@example.com',
+      'REGISTRATION',
+      'v'.repeat(43),
+    );
     expect(mocks.create.mock.calls[0][0].data.enrollments).toEqual({
       create: { programId: 4 },
     });
@@ -96,6 +108,7 @@ describe('AuthService', () => {
     await mocks.service.register({
       username: 'module-student',
       email: 'module@example.com',
+      verificationToken: 'v'.repeat(43),
       password: 'plain-password',
       programId: 9,
       firstName: 'Module',
@@ -107,6 +120,23 @@ describe('AuthService', () => {
     });
   });
 
+  it('does not create an account when the email verification proof is invalid', async () => {
+    const mocks = createService();
+    mocks.consumeVerification.mockRejectedValue(new UnauthorizedException());
+
+    await expect(mocks.service.register({
+      username: 'student',
+      email: 'student@example.com',
+      verificationToken: 'v'.repeat(43),
+      password: 'plain-password',
+      programId: 4,
+      firstName: 'Sample',
+      lastName: 'Student',
+    })).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it('verifies Argon2 hashes before issuing a token', async () => {
     const hashedUser = { ...user, password: '$argon2id$stored-hash' };
     const mocks = createService({ foundUser: hashedUser });
@@ -115,7 +145,16 @@ describe('AuthService', () => {
       .resolves.toEqual({ access_token: 'access-token' });
 
     expect(mocks.verify).toHaveBeenCalledWith(hashedUser.password, 'plain-password');
-    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.signAsync).toHaveBeenCalledWith({
+      username: user.username,
+      sub: user.userId,
+      sessionVersion: 1,
+    });
+    expect(mocks.update).toHaveBeenCalledWith({
+      where: { id: user.userId },
+      data: { sessionVersion: { increment: 1 } },
+      select: { sessionVersion: true },
+    });
   });
 
   it('rehashes a valid legacy plaintext password after login', async () => {
@@ -125,9 +164,14 @@ describe('AuthService', () => {
       .resolves.toEqual({ access_token: 'access-token' });
 
     expect(mocks.verify).not.toHaveBeenCalled();
-    expect(mocks.update).toHaveBeenCalledWith({
+    expect(mocks.update).toHaveBeenNthCalledWith(1, {
       where: { id: user.userId },
       data: { password: '$argon2id$migrated-hash' },
+    });
+    expect(mocks.update).toHaveBeenNthCalledWith(2, {
+      where: { id: user.userId },
+      data: { sessionVersion: { increment: 1 } },
+      select: { sessionVersion: true },
     });
   });
 
@@ -140,5 +184,17 @@ describe('AuthService', () => {
 
     expect(mocks.update).not.toHaveBeenCalled();
     expect(mocks.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('invalidates the active session when logging out', async () => {
+    const mocks = createService();
+
+    await expect(mocks.service.invalidateSession(user.userId)).resolves.toBeUndefined();
+
+    expect(mocks.update).toHaveBeenCalledWith({
+      where: { id: user.userId },
+      data: { sessionVersion: { increment: 1 } },
+      select: { id: true },
+    });
   });
 });

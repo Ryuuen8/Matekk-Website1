@@ -37,10 +37,11 @@ export class EmailService {
 
         if (!res.ok) {
             const errorText = await res.text();
+            // Details stay in the server logs only, never in the API response
             this.logger.error(
                 `EmailJS request failed with status ${res.status}. Response: ${errorText}`,
             );
-            throw new InternalServerErrorException(`EmailJS failed to send the email: ${errorText}`);
+            throw new InternalServerErrorException('Could not send email');
         }
     }
 
@@ -85,6 +86,36 @@ export class EmailService {
             submitted_at: new Date().toLocaleString(),
             review_url: `${frontendUrl}/admin/requests`,
             from_name: 'Matekk Cybercore',
+        });
+    }
+
+    /**
+     * Sends the OTP through the user template.
+     * The template must use {{{email_body}}} (triple braces) so the code box renders as HTML.
+     * Only HTML built here is passed in; never put user-supplied text into email_body.
+     */
+    async sendOtp(email: string, code: string, expiresInMinutes: number) {
+        // Defensive: the code must be exactly 6 digits before it goes into HTML
+        if (!/^\d{6}$/.test(code)) {
+            throw new InternalServerErrorException('Could not send email');
+        }
+
+        const emailBody =
+            `Use this code to continue:` +
+            `<div style="margin:20px 0;padding:20px;background-color:#eff6ff;border:1px solid #bfdbfe;` +
+            `border-radius:12px;text-align:center;font-family:Menlo,Consolas,monospace;` +
+            `font-size:36px;font-weight:700;letter-spacing:10px;color:#0b0f1a;">${code}</div>` +
+            `It expires in <strong>${expiresInMinutes} minutes</strong> and can only be used once. ` +
+            `If you didn't request it, you can ignore this email.`;
+
+        await this.callEmailJs(this.getRequiredConfig('EMAILJS_USER_TEMPLATE_ID'), {
+            email,
+            to_email: email,
+            to_name: 'there',
+            email_title: 'Your verification code',
+            email_body: emailBody,
+            from_name: 'Matekk Cybercore',
+            sender_name: 'Matekk Cybercore',
         });
     }
 }

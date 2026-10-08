@@ -8,6 +8,7 @@ export type User = {
     password: string;
     role: string;
     active_status: boolean;
+    sessionVersion: number;
     pending_status?: string;
     email?: string;
     module_enrolled?: string;
@@ -41,7 +42,7 @@ export class UsersService {
         private readonly emailService: EmailService,
     ) {}
 
-    async findAll(): Promise<Omit<User, 'password'>[]> {
+    async findAll(): Promise<Omit<User, 'password' | 'sessionVersion'>[]> {
         const databaseUsers = await this.prisma.users.findMany({
             select: {
                 id: true,
@@ -124,6 +125,7 @@ export class UsersService {
                 password: true,
                 role: true,
                 active_status: true,
+                sessionVersion: true,
                 email: true,
                 programs_enrolled: true,
                 enrollments: {
@@ -150,6 +152,7 @@ export class UsersService {
             password: databaseUser.password,
             role: databaseUser.role,
             active_status: databaseUser.active_status,
+            sessionVersion: databaseUser.sessionVersion,
             pending_status: databaseUser.active_status ? 'Active' : 'Pending',
             email: databaseUser.email ?? undefined,
             module_enrolled: getEnrolledProgramNames(
@@ -161,10 +164,20 @@ export class UsersService {
 
     async findAuthUserById(
         userId: number,
-    ): Promise<{ userId: number; username: string; active_status: boolean } | undefined> {
+    ): Promise<{
+        userId: number;
+        username: string;
+        active_status: boolean;
+        sessionVersion: number;
+    } | undefined> {
         const databaseUser = await this.prisma.users.findUnique({
             where: { id: userId },
-            select: { id: true, username: true, active_status: true },
+            select: {
+                id: true,
+                username: true,
+                active_status: true,
+                sessionVersion: true,
+            },
         });
 
         if (!databaseUser) {
@@ -175,6 +188,7 @@ export class UsersService {
             userId: databaseUser.id,
             username: databaseUser.username,
             active_status: databaseUser.active_status,
+            sessionVersion: databaseUser.sessionVersion,
         };
     }
 }

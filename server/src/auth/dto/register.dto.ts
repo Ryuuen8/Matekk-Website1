@@ -8,6 +8,9 @@ export class RegisterDto {
     @IsEmail()
     email: string;
 
+    @IsString() @Length(40, 100)
+    verificationToken: string;
+
     @IsString() @MinLength(10) @MaxLength(128)
     password: string;
 

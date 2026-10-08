@@ -35,9 +35,18 @@ $ npm install
 
 Prisma Client is generated automatically before building or starting the server.
 Make sure `DATABASE_URL` is set in `server/.env`.
+Apply pending database migrations with `npx prisma migrate deploy` before
+deploying server code that depends on schema changes. Session-version tracking
+uses a database migration, and existing sign-in cookies become invalid when
+the new code is deployed. Registration email verification also requires its
+pending Prisma migration to be applied before deployment.
 Automatic registration and approval emails use EmailJS. Configure
 `EMAILJS_SERVICE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`,
 `EMAILJS_USER_TEMPLATE_ID`, and `EMAILJS_ADMIN_TEMPLATE_ID`. Set
+`EMAILJS_OTP_TEMPLATE_ID` to enable OTP delivery and `OTP_SECRET` to a
+high-entropy secret for hashing stored OTP codes and short-lived registration
+verification proofs. Registration now requires the user to verify the email
+with a six-digit code before the account can be created. Set
 `FRONTEND_URL` to the deployed website origin so the administrator
 notification links to the correct request review page. Credentialed browser
 requests are allowed from the frontend origin

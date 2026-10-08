@@ -12,6 +12,8 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { EmailModule } from '../email/email.module.js';
 import { ConfigService } from '@nestjs/config';
 import { LoginRateLimitService } from './login-rate-limit.service.js';
+import { OtpService } from './otp/otp.service.js';
+import { RateLimitService } from './rate-limit.service.js';
 
 @Module({
   imports: [
@@ -34,10 +36,12 @@ import { LoginRateLimitService } from './login-rate-limit.service.js';
     AuthService,
     PasswordService,
     LoginRateLimitService,
+    OtpService,
+    RateLimitService,
     JwtStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: ActiveAccountGuard },
   ],
-  exports: [AuthService],
+  exports: [AuthService, OtpService],
 })
 export class AuthModule { }

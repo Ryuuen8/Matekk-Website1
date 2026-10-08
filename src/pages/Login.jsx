@@ -56,6 +56,8 @@ export default function Login() {
   const [registerUsername, setRegisterUsername] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
+  const [registrationOtp, setRegistrationOtp] = useState("");
+  const [emailVerificationToken, setEmailVerificationToken] = useState("");
   const [trainingId, setTrainingId] = useState("");
   const [programId, setProgramId] = useState("");
   const [moduleId, setModuleId] = useState("");
@@ -199,7 +201,7 @@ export default function Login() {
     }
 
     setMsg("");
-    setRegistrationStep((step) => Math.min(step + 1, 2));
+    setRegistrationStep((step) => Math.min(step + 1, 3));
   }
 
   async function submitRegistration(e) {
@@ -211,14 +213,67 @@ export default function Login() {
       return;
     }
 
+    if (registrationStep === 2) {
+      if (!registerUsername || !registerEmail || !registerPassword) {
+        setMsg("Please complete your username, email, and password.");
+        return;
+      }
+
+      setIsSubmitting(true);
+      try {
+        const response = await fetch(`${API_URL}/auth/register/email-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: registerEmail }),
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => null);
+          const message = Array.isArray(error?.message) ? error.message.join(" ") : error?.message;
+          setMsg(message || "Unable to send the verification code.");
+          return;
+        }
+        setRegistrationOtp("");
+        setEmailVerificationToken("");
+        setRegistrationStep(3);
+        setMsg("Enter the verification code sent to your email.");
+      } catch (error) {
+        console.error("Unable to request registration email verification.", error);
+        setMsg("Unable to connect to the registration server.");
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     if (!registerUsername || !registerEmail || !registerPassword || !programId || !trainingId) {
       setMsg("Please complete all required fields before creating your account.");
+      return;
+    }
+    if (!/^\d{6}$/.test(registrationOtp)) {
+      setMsg("Enter the six-digit verification code sent to your email.");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
+      let verificationToken = emailVerificationToken;
+      if (!verificationToken) {
+        const verificationResponse = await fetch(`${API_URL}/auth/register/verify-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: registerEmail, code: registrationOtp }),
+        });
+        if (!verificationResponse.ok) {
+          const error = await verificationResponse.json().catch(() => null);
+          const message = Array.isArray(error?.message) ? error.message.join(" ") : error?.message;
+          setMsg(message || "The verification code is invalid or expired.");
+          return;
+        }
+        ({ verificationToken } = await verificationResponse.json());
+        setEmailVerificationToken(verificationToken);
+      }
+
       const response = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -230,6 +285,7 @@ export default function Login() {
           city,
           username: registerUsername,
           email: registerEmail,
+          verificationToken,
           password: registerPassword,
           programId: Number(moduleId || programId),
         }),
@@ -363,6 +419,7 @@ export default function Login() {
                   "Personal",
                   "Program",
                   "Account",
+                  "Verify email",
                 ].map((tab, index) => (
                   <button
                     key={tab}
@@ -515,7 +572,12 @@ export default function Login() {
                         <input
                           type="email"
                           value={registerEmail}
-                          onChange={(e) => setRegisterEmail(e.target.value)}
+                          onChange={(e) => {
+                            setRegisterEmail(e.target.value);
+                            setRegistrationOtp("");
+                            setEmailVerificationToken("");
+                            if (registrationStep === 3) setRegistrationStep(2);
+                          }}
                           placeholder="you@example.com"
                           autoComplete="email"
                           required
@@ -547,6 +609,60 @@ export default function Login() {
                           </button>
                         </div>
                       </label>
+                    </div>
+                  )}
+
+                  {registrationStep === 3 && (
+                    <div className="space-y-4">
+                      <p className="text-sm text-slate-600">
+                        Enter the six-digit code sent to <strong>{registerEmail}</strong>.
+                      </p>
+                      <label className="block text-sm font-medium text-slate-700">
+                        <span className="mb-2 block">Email verification code</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          pattern="[0-9]{6}"
+                          maxLength={6}
+                          value={registrationOtp}
+                          onChange={(e) => setRegistrationOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          required
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 tracking-[0.3em] text-slate-800 outline-none transition focus:border-[#1775EE] focus:ring-2 focus:ring-blue-100"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={isSubmitting}
+                        onClick={async () => {
+                          setIsSubmitting(true);
+                          setMsg("");
+                          try {
+                            const response = await fetch(`${API_URL}/auth/register/email-otp`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ email: registerEmail }),
+                            });
+                            if (!response.ok) {
+                              const error = await response.json().catch(() => null);
+                              const message = Array.isArray(error?.message) ? error.message.join(" ") : error?.message;
+                              setMsg(message || "Unable to resend the verification code.");
+                              return;
+                            }
+                            setRegistrationOtp("");
+                            setEmailVerificationToken("");
+                            setMsg("A new verification code was sent.");
+                          } catch (error) {
+                            console.error("Unable to resend registration email verification.", error);
+                            setMsg("Unable to connect to the registration server.");
+                          } finally {
+                            setIsSubmitting(false);
+                          }
+                        }}
+                        className="text-sm font-semibold text-[#1775EE] disabled:opacity-50"
+                      >
+                        Resend code
+                      </button>
                     </div>
                   )}
                 </>
@@ -609,7 +725,13 @@ export default function Login() {
                     disabled={isSubmitting || (isLoadingPrograms || !programId || !trainingId)}
                     className="flex-1 rounded-xl bg-[#1775EE] px-4 py-3 text-base font-semibold text-white shadow-[0_10px_20px_rgba(23,117,238,0.28)] transition hover:bg-[#0f64d8] disabled:cursor-wait disabled:opacity-70"
                   >
-                    {isSubmitting ? "Creating account..." : registrationStep === 2 ? "Create account" : "Continue"}
+                    {isSubmitting
+                      ? (registrationStep === 2 ? "Sending code..." : "Verifying email...")
+                      : registrationStep === 2
+                        ? "Send verification code"
+                        : registrationStep === 3
+                          ? "Verify & create account"
+                          : "Continue"}
                   </button>
                 </div>
               )}

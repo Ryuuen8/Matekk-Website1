@@ -18,18 +18,49 @@ import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { LoginRateLimitService } from './login-rate-limit.service.js';
 import { accessTokenCookieOptions, ACCESS_TOKEN_COOKIE } from './auth-cookie.js';
+import { RegistrationEmailOtpDto } from './dto/registration-email-otp.dto.js';
+import { VerifyRegistrationEmailDto } from './dto/verify-registration-email.dto.js';
+import { RateLimitService } from './rate-limit.service.js';
 
 @Controller('auth')
 export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly loginRateLimit: LoginRateLimitService,
+        private readonly rateLimit: RateLimitService,
     ) { }
 
     @Public()
     @Get('programs')
     findRegistrationPrograms() {
         return this.authService.findRegistrationPrograms();
+    }
+
+    @Public()
+    @HttpCode(HttpStatus.OK)
+    @Post('register/email-otp')
+    async requestRegistrationEmailOtp(
+        @Body() dto: RegistrationEmailOtpDto,
+        @Request() request: ExpressRequest,
+    ) {
+        const email = dto.email.trim().toLowerCase();
+        await this.rateLimit.consume(
+            [
+                `registration-otp:email:${email}`,
+                `registration-otp:ip:${request.ip ?? request.socket.remoteAddress ?? 'unknown'}`,
+            ],
+            3,
+            15 * 60 * 1000,
+        );
+        await this.authService.requestRegistrationEmailOtp(email);
+        return { message: 'A verification code was sent to your email.' };
+    }
+
+    @Public()
+    @HttpCode(HttpStatus.OK)
+    @Post('register/verify-email')
+    verifyRegistrationEmail(@Body() dto: VerifyRegistrationEmailDto) {
+        return this.authService.verifyRegistrationEmail(dto.email, dto.code);
     }
 
     @Public()
@@ -65,10 +96,14 @@ export class AuthController {
         return { message: 'Signed in.' };
     }
 
-    @Public()
     @HttpCode(HttpStatus.OK)
     @Post('logout')
-    logout(@Res({ passthrough: true }) response: Response) {
+    @AllowPendingAccount()
+    async logout(
+        @Request() request: ExpressRequest & { user: { userId: number } },
+        @Res({ passthrough: true }) response: Response,
+    ) {
+        await this.authService.invalidateSession(request.user.userId);
         response.clearCookie(ACCESS_TOKEN_COOKIE, accessTokenCookieOptions());
         return { message: 'Signed out.' };
     }

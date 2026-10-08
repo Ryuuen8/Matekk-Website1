@@ -8,6 +8,7 @@ describe('JwtStrategy', () => {
     userId: 12,
     username: 'student',
     active_status: true,
+    sessionVersion: 3,
   };
   const findAuthUserById = vi.fn();
 
@@ -26,7 +27,11 @@ describe('JwtStrategy', () => {
     findAuthUserById.mockResolvedValue({ ...activeUser, active_status: false });
     const strategy = createStrategy();
 
-    await expect(strategy.validate({ sub: 12, username: 'student' })).resolves.toEqual({
+    await expect(strategy.validate({
+      sub: 12,
+      username: 'student',
+      sessionVersion: 3,
+    })).resolves.toEqual({
       ...activeUser,
       active_status: false,
     });
@@ -37,7 +42,11 @@ describe('JwtStrategy', () => {
     findAuthUserById.mockResolvedValue({ ...activeUser, username: 'renamed-user' });
     const strategy = createStrategy();
 
-    await expect(strategy.validate({ sub: 12, username: 'student' }))
+    await expect(strategy.validate({
+      sub: 12,
+      username: 'student',
+      sessionVersion: 3,
+    }))
       .rejects.toBeInstanceOf(UnauthorizedException);
   });
 
@@ -45,8 +54,23 @@ describe('JwtStrategy', () => {
     findAuthUserById.mockResolvedValue(undefined);
     const strategy = createStrategy();
 
-    await expect(strategy.validate({ sub: 12, username: 'student' }))
+    await expect(strategy.validate({
+      sub: 12,
+      username: 'student',
+      sessionVersion: 3,
+    }))
       .rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects tokens from an earlier login session', async () => {
+    findAuthUserById.mockResolvedValue(activeUser);
+    const strategy = createStrategy();
+
+    await expect(strategy.validate({
+      sub: 12,
+      username: 'student',
+      sessionVersion: 2,
+    })).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('rejects malformed token claims', async () => {
