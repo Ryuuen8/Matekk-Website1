@@ -96,7 +96,7 @@ export class EmailService {
             throw new InternalServerErrorException('Could not send email');
         }
 
-        await this.callEmailJs(this.getRequiredConfig('EMAILJS_OTP_TEMPLATE_ID'), {
+        await this.callEmailJs(this.getRequiredConfig('EMAILJS_USER_TEMPLATE_ID'), {
             email,
             to_email: email,
             to_name: 'there',
