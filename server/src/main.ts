@@ -1,9 +1,25 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule, isObserveEnabled, ObserveInstrument } from './app.module.js';
+import {
+  AppModule,
+  isObserveEnabled,
+  ObserveInstrument,
+} from './app.module.js';
 import { ValidationPipe } from '@nestjs/common';
-import * as helmetModule from 'helmet';
-
-const helmet = helmetModule.default;
+import {
+  contentSecurityPolicy,
+  crossOriginOpenerPolicy,
+  crossOriginResourcePolicy,
+  originAgentCluster,
+  referrerPolicy,
+  strictTransportSecurity,
+  xContentTypeOptions,
+  xDnsPrefetchControl,
+  xDownloadOptions,
+  xFrameOptions,
+  xPermittedCrossDomainPolicies,
+  xPoweredBy,
+  xXssProtection,
+} from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create(
@@ -33,7 +49,9 @@ async function bootstrap() {
         !requestOrigin ||
         allowedOrigins.includes(requestOrigin) ||
         (isDevelopment &&
-          /^https?:\/\/(localhost|127\.0\.0\.1|\d{1,3}(?:\.\d{1,3}){3}):\d+$/.test(requestOrigin))
+          /^https?:\/\/(localhost|127\.0\.0\.1|\d{1,3}(?:\.\d{1,3}){3}):\d+$/.test(
+            requestOrigin,
+          ))
       ) {
         callback(null, true);
         return;
@@ -43,21 +61,31 @@ async function bootstrap() {
     },
   });
   app.use(
-    helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: [`'self'`],
-          scriptSrc: [`'self'`],
-          styleSrc: [`'self'`, `'unsafe-inline'`],
-          imgSrc: [`'self'`, 'data:', 'https:'],
-          fontSrc: [`'self'`, 'https:', 'data:'],
-          connectSrc: [`'self'`],
-          objectSrc: [`'none'`],
-          frameAncestors: [`'self'`],
-          upgradeInsecureRequests: [],
-        },
+    contentSecurityPolicy({
+      directives: {
+        defaultSrc: [`'self'`],
+        scriptSrc: [`'self'`],
+        styleSrc: [`'self'`, `'unsafe-inline'`],
+        imgSrc: [`'self'`, 'data:', 'https:'],
+        fontSrc: [`'self'`, 'https:', 'data:'],
+        connectSrc: [`'self'`],
+        objectSrc: [`'none'`],
+        frameAncestors: [`'self'`],
+        upgradeInsecureRequests: [],
       },
     }),
+    crossOriginOpenerPolicy(),
+    crossOriginResourcePolicy(),
+    originAgentCluster(),
+    referrerPolicy(),
+    strictTransportSecurity(),
+    xContentTypeOptions(),
+    xDnsPrefetchControl(),
+    xDownloadOptions(),
+    xFrameOptions(),
+    xPermittedCrossDomainPolicies(),
+    xPoweredBy(),
+    xXssProtection(),
   );
   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
 }
