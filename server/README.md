@@ -46,7 +46,9 @@ Automatic registration and approval emails use EmailJS. Configure
 `EMAILJS_OTP_TEMPLATE_ID` to enable OTP delivery and `OTP_SECRET` to a
 high-entropy secret for hashing stored OTP codes and short-lived registration
 verification proofs. Registration now requires the user to verify the email
-with a six-digit code before the account can be created. Set
+with a six-digit code before the account can be created, and sign-in requires
+a six-digit email code after the password is accepted. The OTP EmailJS
+template should render the `email_body` parameter as HTML. Set
 `FRONTEND_URL` to the deployed website origin so the administrator
 notification links to the correct request review page. Credentialed browser
 requests are allowed from the frontend origin

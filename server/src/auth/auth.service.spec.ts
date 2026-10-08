@@ -11,6 +11,7 @@ describe('AuthService', () => {
   const user: User = {
     userId: 12,
     username: 'student',
+    email: 'student@example.com',
     password: 'plain-password',
     role: 'Student',
     active_status: false,
@@ -137,42 +138,71 @@ describe('AuthService', () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
-  it('verifies Argon2 hashes before issuing a token', async () => {
+  it('verifies Argon2 credentials and sends a sign-in OTP', async () => {
     const hashedUser = { ...user, password: '$argon2id$stored-hash' };
     const mocks = createService({ foundUser: hashedUser });
 
     await expect(mocks.service.signIn('student', 'plain-password'))
-      .resolves.toEqual({ access_token: 'access-token' });
+      .resolves.toEqual({ requiresOtp: true, maskedEmail: 's******@example.com' });
 
     expect(mocks.verify).toHaveBeenCalledWith(hashedUser.password, 'plain-password');
-    expect(mocks.signAsync).toHaveBeenCalledWith({
-      username: user.username,
-      sub: user.userId,
-      sessionVersion: 1,
-    });
+    expect(mocks.request).toHaveBeenCalledWith('student@example.com', 'LOGIN');
+    expect(mocks.signAsync).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it('issues a session only after consuming a valid sign-in OTP', async () => {
+    const mocks = createService();
+
+    await expect(mocks.service.verifySignInOtp('student', '123456'))
+      .resolves.toEqual({ access_token: 'access-token' });
+
+    expect(mocks.verifyEmail).toHaveBeenCalledWith(
+      'student@example.com',
+      'LOGIN',
+      '123456',
+    );
+    expect(mocks.consumeVerification).toHaveBeenCalledWith(
+      'student@example.com',
+      'LOGIN',
+      'v'.repeat(43),
+    );
     expect(mocks.update).toHaveBeenCalledWith({
       where: { id: user.userId },
       data: { sessionVersion: { increment: 1 } },
       select: { sessionVersion: true },
     });
+    expect(mocks.signAsync).toHaveBeenCalledWith({
+      username: user.username,
+      sub: user.userId,
+      sessionVersion: 1,
+    });
   });
 
-  it('rehashes a valid legacy plaintext password after login', async () => {
+  it('does not issue a session when the sign-in OTP is invalid', async () => {
+    const mocks = createService();
+    mocks.verifyEmail.mockRejectedValue(new UnauthorizedException());
+
+    await expect(mocks.service.verifySignInOtp('student', '000000'))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(mocks.consumeVerification).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('rehashes a valid legacy plaintext password before sending the OTP', async () => {
     const mocks = createService({ hash: '$argon2id$migrated-hash' });
 
     await expect(mocks.service.signIn('student', 'plain-password'))
-      .resolves.toEqual({ access_token: 'access-token' });
+      .resolves.toMatchObject({ requiresOtp: true });
 
     expect(mocks.verify).not.toHaveBeenCalled();
-    expect(mocks.update).toHaveBeenNthCalledWith(1, {
+    expect(mocks.update).toHaveBeenCalledWith({
       where: { id: user.userId },
       data: { password: '$argon2id$migrated-hash' },
     });
-    expect(mocks.update).toHaveBeenNthCalledWith(2, {
-      where: { id: user.userId },
-      data: { sessionVersion: { increment: 1 } },
-      select: { sessionVersion: true },
-    });
+    expect(mocks.request).toHaveBeenCalledWith('student@example.com', 'LOGIN');
   });
 
   it('rejects an incorrect password without changing the saved password', async () => {

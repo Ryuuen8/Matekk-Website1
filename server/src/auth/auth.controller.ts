@@ -21,6 +21,7 @@ import { accessTokenCookieOptions, ACCESS_TOKEN_COOKIE } from './auth-cookie.js'
 import { RegistrationEmailOtpDto } from './dto/registration-email-otp.dto.js';
 import { VerifyRegistrationEmailDto } from './dto/verify-registration-email.dto.js';
 import { RateLimitService } from './rate-limit.service.js';
+import { VerifyLoginOtpDto } from './dto/verify-login-otp.dto.js';
 
 @Controller('auth')
 export class AuthController {
@@ -75,7 +76,6 @@ export class AuthController {
     async signIn(
         @Body() signInDto: LoginDto,
         @Request() request: ExpressRequest,
-        @Res({ passthrough: true }) response: Response,
     ) {
         const allowed = await this.loginRateLimit.consume(
             request.ip ?? request.socket.remoteAddress ?? 'unknown',
@@ -88,9 +88,34 @@ export class AuthController {
             );
         }
 
-        const { access_token: token } = await this.authService.signIn(
+        return this.authService.signIn(
             signInDto.username,
             signInDto.password,
+        );
+    }
+
+    @Public()
+    @HttpCode(HttpStatus.OK)
+    @Post('login/verify-otp')
+    async verifySignInOtp(
+        @Body() dto: VerifyLoginOtpDto,
+        @Request() request: ExpressRequest,
+        @Res({ passthrough: true }) response: Response,
+    ) {
+        const allowed = await this.loginRateLimit.consume(
+            request.ip ?? request.socket.remoteAddress ?? 'unknown',
+            dto.username,
+        );
+        if (!allowed) {
+            throw new HttpException(
+                'Too many login attempts. Please try again later.',
+                HttpStatus.TOO_MANY_REQUESTS,
+            );
+        }
+
+        const { access_token: token } = await this.authService.verifySignInOtp(
+            dto.username,
+            dto.code,
         );
         response.cookie(ACCESS_TOKEN_COOKIE, token, accessTokenCookieOptions());
         return { message: 'Signed in.' };

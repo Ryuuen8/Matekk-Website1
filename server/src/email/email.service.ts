@@ -90,7 +90,7 @@ export class EmailService {
     }
 
     /**
-     * Sends the OTP through the user template.
+     * Sends the OTP through the dedicated OTP template.
      * The template must use {{{email_body}}} (triple braces) so the code box renders as HTML.
      * Only HTML built here is passed in; never put user-supplied text into email_body.
      */

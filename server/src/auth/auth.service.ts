@@ -119,7 +119,10 @@ export class AuthService {
         return { message: 'Registration submitted. Please wait for approval.' }
     }
 
-    async signIn(username: string, pass: string): Promise<{ access_token: string }> {
+    async signIn(
+        username: string,
+        pass: string,
+    ): Promise<{ requiresOtp: true; maskedEmail: string }> {
         const user = await this.usersService.findOne(username);
         if (!user) {
             throw new UnauthorizedException();
@@ -140,6 +143,35 @@ export class AuthService {
                 data: { password: upgradedPassword },
             });
         }
+
+        const normalizedEmail = user.email?.trim().toLowerCase();
+        const [localPart, domain] = normalizedEmail?.split('@') ?? [];
+        if (!normalizedEmail || !localPart || !domain) {
+            throw new UnauthorizedException('Email verification is unavailable for this account.');
+        }
+        await this.otpService.request(normalizedEmail, 'LOGIN');
+        const maskedEmail = `${localPart.slice(0, 1)}${'*'.repeat(Math.min(Math.max(localPart.length - 1, 3), 8))}@${domain}`;
+        return { requiresOtp: true, maskedEmail };
+    }
+
+    async verifySignInOtp(
+        username: string,
+        code: string,
+    ): Promise<{ access_token: string }> {
+        const user = await this.usersService.findOne(username);
+        if (!user?.email) {
+            throw new UnauthorizedException('Invalid or expired verification code.');
+        }
+        const { verificationToken } = await this.otpService.verify(
+            user.email,
+            'LOGIN',
+            code,
+        );
+        await this.otpService.consumeVerification(
+            user.email,
+            'LOGIN',
+            verificationToken,
+        );
 
         const session = await this.prisma.users.update({
             where: { id: user.userId },

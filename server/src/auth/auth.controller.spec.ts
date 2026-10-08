@@ -11,6 +11,7 @@ import {
 describe('AuthController', () => {
   let controller: AuthController;
   const signIn = vi.fn();
+  const verifySignInOtp = vi.fn();
   const invalidateSession = vi.fn();
   const consume = vi.fn();
   const consumeOtpRateLimit = vi.fn();
@@ -19,12 +20,14 @@ describe('AuthController', () => {
 
   beforeEach(async () => {
     signIn.mockReset();
+    verifySignInOtp.mockReset();
     invalidateSession.mockReset();
     consume.mockReset();
     consumeOtpRateLimit.mockReset();
     requestRegistrationEmailOtp.mockReset();
     verifyRegistrationEmail.mockReset();
     signIn.mockResolvedValue({ access_token: 'signed-token' });
+    verifySignInOtp.mockResolvedValue({ access_token: 'signed-token' });
     invalidateSession.mockResolvedValue(undefined);
     consume.mockResolvedValue(true);
     consumeOtpRateLimit.mockResolvedValue(undefined);
@@ -37,6 +40,7 @@ describe('AuthController', () => {
           provide: AuthService,
           useValue: {
             signIn,
+            verifySignInOtp,
             invalidateSession,
             requestRegistrationEmailOtp,
             verifyRegistrationEmail,
@@ -84,20 +88,36 @@ describe('AuthController', () => {
     );
   });
 
-  it('sets the HttpOnly session cookie after a rate-limited login succeeds', async () => {
-    const cookie = vi.fn();
-    const response = { cookie };
-
+  it('requests email verification after rate-limited credentials are accepted', async () => {
+    signIn.mockResolvedValue({
+      requiresOtp: true,
+      maskedEmail: 's***@example.com',
+    });
     await expect(
       controller.signIn(
         { username: 'student', password: 'password' },
         { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' } } as never,
-        response as never,
       ),
-    ).resolves.toEqual({ message: 'Signed in.' });
+    ).resolves.toEqual({
+      requiresOtp: true,
+      maskedEmail: 's***@example.com',
+    });
 
     expect(consume).toHaveBeenCalledWith('192.0.2.1', 'student');
     expect(signIn).toHaveBeenCalledWith('student', 'password');
+  });
+
+  it('sets the HttpOnly session cookie only after the sign-in OTP is verified', async () => {
+    const cookie = vi.fn();
+
+    await expect(controller.verifySignInOtp(
+      { username: 'student', code: '123456' },
+      { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' } } as never,
+      { cookie } as never,
+    )).resolves.toEqual({ message: 'Signed in.' });
+
+    expect(consume).toHaveBeenCalledWith('192.0.2.1', 'student');
+    expect(verifySignInOtp).toHaveBeenCalledWith('student', '123456');
     expect(cookie).toHaveBeenCalledWith(
       ACCESS_TOKEN_COOKIE,
       'signed-token',
@@ -140,7 +160,6 @@ describe('AuthController', () => {
       controller.signIn(
         { username: 'student', password: 'password' },
         { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' } } as never,
-        { cookie: vi.fn() } as never,
       ),
     ).rejects.toThrow('Too many login attempts.');
 

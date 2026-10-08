@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import API_URL from "../config/api";
 
 const AuthContext = createContext(null);
@@ -7,7 +7,7 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  async function refreshProfile() {
+  const refreshProfile = useCallback(async () => {
     const response = await fetch(`${API_URL}/auth/profile`, {
       credentials: "include",
     });
@@ -18,7 +18,7 @@ export function AuthProvider({ children }) {
     const nextProfile = await response.json();
     setProfile(nextProfile);
     return nextProfile;
-  }
+  }, []);
 
   useEffect(() => {
     localStorage.removeItem("accessToken");
@@ -39,15 +39,7 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  async function login(username, password) {
-    const response = await fetch(`${API_URL}/auth/login`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (!response.ok) return { response, profile: null };
-
+  const completeLogin = useCallback(async (response) => {
     let signedInProfile;
     try {
       const profileResponse = await fetch(`${API_URL}/auth/profile`, {
@@ -68,9 +60,37 @@ export function AuthProvider({ children }) {
     }
     setProfile(signedInProfile);
     return { response, profile: signedInProfile };
-  }
+  }, []);
 
-  function logout() {
+  const login = useCallback(async (username, password) => {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!response.ok) return { response, profile: null };
+
+    const result = await response.json();
+    if (result.requiresOtp) {
+      return { response, profile: null, requiresOtp: true, maskedEmail: result.maskedEmail };
+    }
+
+    return completeLogin(response);
+  }, [completeLogin]);
+
+  const verifyLoginOtp = useCallback(async (username, code) => {
+    const response = await fetch(`${API_URL}/auth/login/verify-otp`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, code }),
+    });
+    if (!response.ok) return { response, profile: null };
+    return completeLogin(response);
+  }, [completeLogin]);
+
+  const logout = useCallback(() => {
     setProfile(null);
     void fetch(`${API_URL}/auth/logout`, {
       method: "POST",
@@ -78,11 +98,19 @@ export function AuthProvider({ children }) {
     }).then((response) => {
       if (!response.ok) throw new Error(`Logout request failed (${response.status}).`);
     }).catch((error) => console.error("Unable to clear the server session.", error));
-  }
+  }, []);
 
   const value = useMemo(
-    () => ({ profile, isAuthenticated: Boolean(profile), isLoading, login, logout, refreshProfile }),
-    [isLoading, profile],
+    () => ({
+      profile,
+      isAuthenticated: Boolean(profile),
+      isLoading,
+      login,
+      verifyLoginOtp,
+      logout,
+      refreshProfile,
+    }),
+    [isLoading, profile, login, verifyLoginOtp, logout, refreshProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
