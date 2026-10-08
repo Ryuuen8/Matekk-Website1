@@ -39,7 +39,11 @@ Automatic registration and approval emails use EmailJS. Configure
 `EMAILJS_SERVICE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`,
 `EMAILJS_USER_TEMPLATE_ID`, and `EMAILJS_ADMIN_TEMPLATE_ID`. Set
 `FRONTEND_URL` to the deployed website origin so the administrator
-notification links to the correct request review page.
+notification links to the correct request review page. Credentialed browser
+requests are allowed from the frontend origin
+`https://matekk-website1-q7cp.vercel.app` by default. If the frontend domain
+changes or additional origins are needed, configure `CORS_ORIGINS` as a
+comma-separated list of allowed origins.
 Observe telemetry is optional. To enable it, set both `OBSERVE_APP_KEY` and
 `OBSERVE_APP_SECRET`; otherwise telemetry is disabled. `OBSERVE_SERVICE_ID`
 defaults to `server`.

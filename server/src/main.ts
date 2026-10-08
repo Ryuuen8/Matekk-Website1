@@ -37,6 +37,13 @@ async function bootstrap() {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const allowedOriginSet = new Set(
+    [
+      'https://matekk-website1-q7cp.vercel.app',
+      ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+      ...allowedOrigins,
+    ].map((origin) => origin.replace(/\/+$/, '')),
+  );
   const isDevelopment = process.env.NODE_ENV !== 'production';
 
   app.enableCors({
@@ -47,7 +54,7 @@ async function bootstrap() {
     ) => {
       if (
         !requestOrigin ||
-        allowedOrigins.includes(requestOrigin) ||
+        allowedOriginSet.has(requestOrigin) ||
         (isDevelopment &&
           /^https?:\/\/(localhost|127\.0\.0\.1|\d{1,3}(?:\.\d{1,3}){3}):\d+$/.test(
             requestOrigin,
