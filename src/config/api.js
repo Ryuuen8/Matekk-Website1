@@ -5,4 +5,4 @@ const defaultApiUrl = import.meta.env.DEV
 
 const API_URL = (configuredApiUrl || defaultApiUrl).replace(/\/+$/, "");
 
-export default API_URL;
+export default API_URL; 
