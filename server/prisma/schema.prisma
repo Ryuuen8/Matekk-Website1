@@ -46,6 +46,8 @@ model Users {
   birth_date        DateTime     @default(now())
   gender            String?
   city_province     String       @default("")
+  phone_number      String?
+  profile_photo     String?
 }
 
 model UserGradebook {

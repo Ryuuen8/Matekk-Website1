@@ -32,22 +32,29 @@ describe('AuthService', () => {
     const findFirst = vi.fn(async () => null);
     const create = vi.fn(async () => user);
     const update = vi.fn(async () => ({ sessionVersion: 1 }));
+    const findUnique = vi.fn(async () => user);
+    const findById = vi.fn(async () => options.foundUser ?? user);
+    const enrollmentFindMany = vi.fn(async () => []);
     const sendUserStatusEmail = vi.fn(async () => undefined);
     const sendAdminNotification = vi.fn(async () => undefined);
     const request = vi.fn(async () => undefined);
     const verifyEmail = vi.fn(async () => ({ verificationToken: 'v'.repeat(43) }));
     const consumeVerification = vi.fn(async () => undefined);
     const service = new AuthService(
-      { findOne } as unknown as UsersService,
+      { findOne, findById } as unknown as UsersService,
       { signAsync } as unknown as import('@nestjs/jwt').JwtService,
       { hash, verify, needsRehash } as unknown as PasswordService,
-      { users: { findFirst, create, update } } as unknown as PrismaService,
+      {
+        users: { findFirst, findUnique, create, update },
+        enrollment: { findMany: enrollmentFindMany },
+      } as unknown as PrismaService,
       { sendUserStatusEmail, sendAdminNotification } as unknown as EmailService,
       { request, verify: verifyEmail, consumeVerification } as unknown as OtpService,
     );
 
     return {
-      service, findOne, signAsync, hash, verify, needsRehash, findFirst, create, update,
+      service, findOne, findById, signAsync, hash, verify, needsRehash, findFirst,
+      findUnique, create, update, enrollmentFindMany,
       sendUserStatusEmail, sendAdminNotification, request, verifyEmail, consumeVerification,
     };
   }
@@ -226,5 +233,76 @@ describe('AuthService', () => {
       data: { sessionVersion: { increment: 1 } },
       select: { id: true },
     });
+  });
+
+  it('updates profile details and returns the sanitized profile', async () => {
+    const mocks = createService();
+
+    await expect(mocks.service.updateProfile(user.userId, {
+      first_name: ' Sample ',
+      phone_number: ' 555-1234 ',
+    })).resolves.toMatchObject({
+      userId: user.userId,
+      username: user.username,
+      email: user.email,
+    });
+
+    expect(mocks.update).toHaveBeenCalledWith({
+      where: { id: user.userId },
+      data: { first_name: 'Sample', phone_number: '555-1234' },
+    });
+    expect(mocks.findById).toHaveBeenCalledWith(user.userId);
+  });
+
+  it('stores only a correctly signed JPEG profile photo within the size limit', async () => {
+    const mocks = createService();
+    const image = Buffer.from([0xff, 0xd8, 0xff]).toString('base64');
+    const photoDataUrl = `data:image/jpeg;base64,${image}`;
+
+    await expect(mocks.service.updateProfilePhoto(user.userId, { photoDataUrl }))
+      .resolves.toEqual({ message: 'Profile photo updated successfully.' });
+
+    expect(mocks.update).toHaveBeenCalledWith({
+      where: { id: user.userId },
+      data: { profile_photo: photoDataUrl },
+      select: { id: true },
+    });
+  });
+
+  it('rejects non-image profile photo data without writing it', async () => {
+    const mocks = createService();
+    const photoDataUrl = `data:image/jpeg;base64,${Buffer.from('not an image').toString('base64')}`;
+
+    await expect(mocks.service.updateProfilePhoto(user.userId, { photoDataUrl }))
+      .rejects.toThrow('Profile photo must be a valid JPG or PNG');
+
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it('requires the current password and invalidates active sessions on password change', async () => {
+    const mocks = createService();
+
+    await expect(mocks.service.changePassword(user.userId, {
+      currentPassword: 'plain-password',
+      newPassword: 'new-password-123',
+    })).resolves.toEqual({ message: 'Password updated successfully.' });
+
+    expect(mocks.update).toHaveBeenCalledWith({
+      where: { id: user.userId },
+      data: {
+        password: '$argon2id$hashed-password',
+        sessionVersion: { increment: 1 },
+      },
+    });
+  });
+
+  it('returns learning history for only the requested user', async () => {
+    const mocks = createService();
+
+    await expect(mocks.service.getLearningHistory(user.userId)).resolves.toEqual([]);
+    expect(mocks.enrollmentFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: user.userId },
+      orderBy: { enrolledAt: 'desc' },
+    }));
   });
 });

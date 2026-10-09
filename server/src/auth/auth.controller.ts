@@ -2,6 +2,9 @@ import {
     Body,
     Controller,
     Post,
+    Patch,
+    Put,
+    Delete,
     HttpCode,
     HttpStatus,
     Request,
@@ -22,6 +25,9 @@ import { RegistrationEmailOtpDto } from './dto/registration-email-otp.dto.js';
 import { VerifyRegistrationEmailDto } from './dto/verify-registration-email.dto.js';
 import { RateLimitService } from './rate-limit.service.js';
 import { VerifyLoginOtpDto } from './dto/verify-login-otp.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { UpdateProfileDto } from './dto/profile.dto.js';
+import { ProfilePhotoDto } from './dto/profile-photo.dto.js';
 
 @Controller('auth')
 export class AuthController {
@@ -138,5 +144,56 @@ export class AuthController {
     getProfile(@Request() req: ExpressRequest & { user: unknown }) {
         const { username } = req.user as { username: string };
         return this.authService.getProfile(username);
+    }
+
+    @Header('Cache-Control', 'no-store')
+    @Patch('profile')
+    @AllowPendingAccount()
+    updateProfile(
+        @Request() req: ExpressRequest & { user: { userId: number } },
+        @Body() dto: UpdateProfileDto,
+    ) {
+        return this.authService.updateProfile(req.user.userId, dto);
+    }
+
+    @Header('Cache-Control', 'no-store')
+    @Get('profile/photo')
+    @AllowPendingAccount()
+    getProfilePhoto(@Request() req: ExpressRequest & { user: { userId: number } }) {
+        return this.authService.getProfilePhoto(req.user.userId);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @Put('profile/photo')
+    @AllowPendingAccount()
+    updateProfilePhoto(
+        @Request() req: ExpressRequest & { user: { userId: number } },
+        @Body() dto: ProfilePhotoDto,
+    ) {
+        return this.authService.updateProfilePhoto(req.user.userId, dto);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @Delete('profile/photo')
+    @AllowPendingAccount()
+    removeProfilePhoto(@Request() req: ExpressRequest & { user: { userId: number } }) {
+        return this.authService.removeProfilePhoto(req.user.userId);
+    }
+
+    @HttpCode(HttpStatus.OK)
+    @Patch('change-password')
+    @AllowPendingAccount()
+    changePassword(
+        @Request() req: ExpressRequest & { user: { userId: number } },
+        @Body() dto: ChangePasswordDto,
+    ) {
+        return this.authService.changePassword(req.user.userId, dto);
+    }
+
+    @Header('Cache-Control', 'no-store')
+    @Get('learning-history')
+    @AllowPendingAccount()
+    getLearningHistory(@Request() req: ExpressRequest & { user: { userId: number } }) {
+        return this.authService.getLearningHistory(req.user.userId);
     }
 }

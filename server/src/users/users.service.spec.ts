@@ -164,6 +164,13 @@ describe('UsersService', () => {
         active_status: true,
         sessionVersion: true,
         email: true,
+        first_name: true,
+        last_name: true,
+        birth_date: true,
+        gender: true,
+        city_province: true,
+        phone_number: true,
+        profile_photo: true,
         programs_enrolled: true,
         enrollments: {
           select: {
@@ -256,6 +263,41 @@ describe('UsersService', () => {
         active_status: true,
         sessionVersion: true,
       },
+    });
+  });
+
+  it('loads a complete profile by user id', async () => {
+    const birthDate = new Date('2000-01-02T00:00:00.000Z');
+    findUnique.mockResolvedValue({
+      id: 47,
+      username: 'profile-user',
+      password: 'hashed',
+      role: 'Student',
+      active_status: true,
+      sessionVersion: 3,
+      email: 'profile@example.com',
+      first_name: 'Profile',
+      last_name: 'User',
+      birth_date: birthDate,
+      gender: 'Female',
+      city_province: 'Rizal',
+      phone_number: '555-1234',
+      profile_photo: null,
+      programs_enrolled: '',
+      enrollments: [],
+    });
+
+    await expect(service.findById(47)).resolves.toMatchObject({
+      userId: 47,
+      username: 'profile-user',
+      email: 'profile@example.com',
+      first_name: 'Profile',
+      last_name: 'User',
+      birth_date: birthDate,
+      gender: 'Female',
+      city_province: 'Rizal',
+      phone_number: '555-1234',
+      profile_photo: null,
     });
   });
 

@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { json, urlencoded } from 'express';
 import {
   AppModule,
   isObserveEnabled,
@@ -24,7 +25,14 @@ import {
 async function bootstrap() {
   const app = await NestFactory.create(
     AppModule,
-    isObserveEnabled ? { instrument: ObserveInstrument } : {},
+    {
+      bodyParser: false,
+      ...(isObserveEnabled ? { instrument: ObserveInstrument } : {}),
+    },
+  );
+  app.use(
+    json({ limit: '4mb' }),
+    urlencoded({ extended: true, limit: '4mb' }),
   );
   app.useGlobalPipes(
     new ValidationPipe({

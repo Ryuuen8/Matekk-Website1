@@ -11,6 +11,13 @@ export type User = {
     sessionVersion: number;
     pending_status?: string;
     email?: string;
+    first_name?: string;
+    last_name?: string;
+    birth_date?: Date;
+    gender?: string | null;
+    city_province?: string;
+    phone_number?: string | null;
+    profile_photo?: string | null;
     module_enrolled?: string;
     course_enrolled?: string[];
 };
@@ -127,6 +134,13 @@ export class UsersService {
                 active_status: true,
                 sessionVersion: true,
                 email: true,
+                first_name: true,
+                last_name: true,
+                birth_date: true,
+                gender: true,
+                city_province: true,
+                phone_number: true,
+                profile_photo: true,
                 programs_enrolled: true,
                 enrollments: {
                     select: {
@@ -155,6 +169,71 @@ export class UsersService {
             sessionVersion: databaseUser.sessionVersion,
             pending_status: databaseUser.active_status ? 'Active' : 'Pending',
             email: databaseUser.email ?? undefined,
+            first_name: databaseUser.first_name,
+            last_name: databaseUser.last_name,
+            birth_date: databaseUser.birth_date,
+            gender: databaseUser.gender,
+            city_province: databaseUser.city_province,
+            phone_number: databaseUser.phone_number,
+            profile_photo: databaseUser.profile_photo,
+            module_enrolled: getEnrolledProgramNames(
+                databaseUser.enrollments,
+                databaseUser.programs_enrolled,
+            ),
+        };
+    }
+
+    async findById(userId: number): Promise<User | undefined> {
+        const databaseUser = await this.prisma.users.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                username: true,
+                password: true,
+                role: true,
+                active_status: true,
+                sessionVersion: true,
+                email: true,
+                first_name: true,
+                last_name: true,
+                birth_date: true,
+                gender: true,
+                city_province: true,
+                phone_number: true,
+                profile_photo: true,
+                programs_enrolled: true,
+                enrollments: {
+                    select: {
+                        program: {
+                            select: {
+                                name: true,
+                                parentId: true,
+                                modules: { select: { name: true } },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!databaseUser) return undefined;
+
+        return {
+            userId: databaseUser.id,
+            username: databaseUser.username,
+            password: databaseUser.password,
+            role: databaseUser.role,
+            active_status: databaseUser.active_status,
+            sessionVersion: databaseUser.sessionVersion,
+            pending_status: databaseUser.active_status ? 'Active' : 'Pending',
+            email: databaseUser.email ?? undefined,
+            first_name: databaseUser.first_name,
+            last_name: databaseUser.last_name,
+            birth_date: databaseUser.birth_date,
+            gender: databaseUser.gender,
+            city_province: databaseUser.city_province,
+            phone_number: databaseUser.phone_number,
+            profile_photo: databaseUser.profile_photo,
             module_enrolled: getEnrolledProgramNames(
                 databaseUser.enrollments,
                 databaseUser.programs_enrolled,

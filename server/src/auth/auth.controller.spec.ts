@@ -17,6 +17,13 @@ describe('AuthController', () => {
   const consumeOtpRateLimit = vi.fn();
   const requestRegistrationEmailOtp = vi.fn();
   const verifyRegistrationEmail = vi.fn();
+  const getProfile = vi.fn();
+  const updateProfile = vi.fn();
+  const getProfilePhoto = vi.fn();
+  const updateProfilePhoto = vi.fn();
+  const removeProfilePhoto = vi.fn();
+  const changePassword = vi.fn();
+  const getLearningHistory = vi.fn();
 
   beforeEach(async () => {
     signIn.mockReset();
@@ -26,6 +33,13 @@ describe('AuthController', () => {
     consumeOtpRateLimit.mockReset();
     requestRegistrationEmailOtp.mockReset();
     verifyRegistrationEmail.mockReset();
+    getProfile.mockReset();
+    updateProfile.mockReset();
+    getProfilePhoto.mockReset();
+    updateProfilePhoto.mockReset();
+    removeProfilePhoto.mockReset();
+    changePassword.mockReset();
+    getLearningHistory.mockReset();
     signIn.mockResolvedValue({ access_token: 'signed-token' });
     verifySignInOtp.mockResolvedValue({ access_token: 'signed-token' });
     invalidateSession.mockResolvedValue(undefined);
@@ -33,6 +47,13 @@ describe('AuthController', () => {
     consumeOtpRateLimit.mockResolvedValue(undefined);
     requestRegistrationEmailOtp.mockResolvedValue(undefined);
     verifyRegistrationEmail.mockResolvedValue({ verificationToken: 'proof' });
+    getProfile.mockResolvedValue({ userId: 12 });
+    updateProfile.mockResolvedValue({ userId: 12 });
+    getProfilePhoto.mockResolvedValue({ photoDataUrl: null });
+    updateProfilePhoto.mockResolvedValue({ message: 'Profile photo updated successfully.' });
+    removeProfilePhoto.mockResolvedValue({ message: 'Profile photo removed successfully.' });
+    changePassword.mockResolvedValue({ message: 'Password updated successfully.' });
+    getLearningHistory.mockResolvedValue([]);
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [
@@ -44,6 +65,13 @@ describe('AuthController', () => {
             invalidateSession,
             requestRegistrationEmailOtp,
             verifyRegistrationEmail,
+            getProfile,
+            updateProfile,
+            getProfilePhoto,
+            updateProfilePhoto,
+            removeProfilePhoto,
+            changePassword,
+            getLearningHistory,
           },
         },
         { provide: LoginRateLimitService, useValue: { consume } },
@@ -151,6 +179,39 @@ describe('AuthController', () => {
       ACCESS_TOKEN_COOKIE,
       expect.objectContaining({ path: '/' }),
     );
+  });
+
+  it('routes profile updates and photo operations to the authenticated user', async () => {
+    const request = { user: { userId: 12 } } as never;
+    const profile = { first_name: 'Sample' };
+    const photo = { photoDataUrl: 'data:image/png;base64,encoded' };
+
+    await expect(controller.updateProfile(request, profile as never)).resolves.toEqual({ userId: 12 });
+    await expect(controller.getProfilePhoto(request)).resolves.toEqual({ photoDataUrl: null });
+    await expect(controller.updateProfilePhoto(request, photo as never)).resolves.toEqual({
+      message: 'Profile photo updated successfully.',
+    });
+    await expect(controller.removeProfilePhoto(request)).resolves.toEqual({
+      message: 'Profile photo removed successfully.',
+    });
+
+    expect(updateProfile).toHaveBeenCalledWith(12, profile);
+    expect(getProfilePhoto).toHaveBeenCalledWith(12);
+    expect(updateProfilePhoto).toHaveBeenCalledWith(12, photo);
+    expect(removeProfilePhoto).toHaveBeenCalledWith(12);
+  });
+
+  it('routes password changes and learning history to the authenticated user', async () => {
+    const request = { user: { userId: 12 } } as never;
+    const dto = { currentPassword: 'old-password', newPassword: 'new-password-123' };
+
+    await expect(controller.changePassword(request, dto as never)).resolves.toEqual({
+      message: 'Password updated successfully.',
+    });
+    await expect(controller.getLearningHistory(request)).resolves.toEqual([]);
+
+    expect(changePassword).toHaveBeenCalledWith(12, dto);
+    expect(getLearningHistory).toHaveBeenCalledWith(12);
   });
 
   it('does not authenticate when the rate limit is exceeded', async () => {
