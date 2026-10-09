@@ -18,6 +18,7 @@ export type User = {
     city_province?: string;
     phone_number?: string | null;
     profile_photo?: string | null;
+    expiration_date?: Date | null;
     module_enrolled?: string;
     course_enrolled?: string[];
 };
@@ -57,6 +58,7 @@ export class UsersService {
                 email: true,
                 role: true,
                 active_status: true,
+                expiration_date: true,
                 programs_enrolled: true,
                 enrollments: {
                     select: {
@@ -78,16 +80,21 @@ export class UsersService {
                 email: user.email ?? undefined,
                 role: user.role,
                 active_status: user.active_status,
+                expiration_date: user.expiration_date ?? null,
                 pending_status: user.active_status ? 'Active' : 'Pending',
                 module_enrolled: getEnrolledProgramNames(user.enrollments, user.programs_enrolled),
             }));
     }
 
-    async approve(userId: number): Promise<{ userId: number; active_status: true }> {
+    async approve(
+        userId: number,
+    ): Promise<{ userId: number; active_status: true; expiration_date: Date | null }> {
         const user = await this.prisma.users.findUnique({
             where: { id: userId },
             select: {
                 active_status: true,
+                expiration_date: true,
+                role: true,
                 email: true,
                 first_name: true,
                 last_name: true,
@@ -98,11 +105,20 @@ export class UsersService {
             throw new NotFoundException('User not found.');
         }
 
+        const isAdmin = user.role.trim().toLowerCase() === 'admin';
+        const expirationDate = isAdmin
+            ? null
+            : user.active_status
+                ? user.expiration_date
+                : addMonthsClamped(new Date(), 3);
+
         // Only send approval email when the account transitions from pending to active.
-        const result = await this.prisma.users.updateMany({
-            where: { id: userId, active_status: false },
-            data: { active_status: true },
-        });
+        const result = user.active_status
+            ? { count: 0 }
+            : await this.prisma.users.updateMany({
+                where: { id: userId, active_status: false },
+                data: { active_status: true, expiration_date: expirationDate },
+            });
 
         if (!user.active_status && result.count > 0) {
             if (!user.email) {
@@ -120,7 +136,7 @@ export class UsersService {
             }
         }
 
-        return { userId, active_status: true };
+        return { userId, active_status: true, expiration_date: expirationDate };
     }
 
     async findOne(username: string): Promise<User | undefined> {
@@ -132,6 +148,7 @@ export class UsersService {
                 password: true,
                 role: true,
                 active_status: true,
+                expiration_date: true,
                 sessionVersion: true,
                 email: true,
                 first_name: true,
@@ -166,6 +183,7 @@ export class UsersService {
             password: databaseUser.password,
             role: databaseUser.role,
             active_status: databaseUser.active_status,
+            expiration_date: databaseUser.expiration_date ?? null,
             sessionVersion: databaseUser.sessionVersion,
             pending_status: databaseUser.active_status ? 'Active' : 'Pending',
             email: databaseUser.email ?? undefined,
@@ -192,6 +210,7 @@ export class UsersService {
                 password: true,
                 role: true,
                 active_status: true,
+                expiration_date: true,
                 sessionVersion: true,
                 email: true,
                 first_name: true,
@@ -224,6 +243,7 @@ export class UsersService {
             password: databaseUser.password,
             role: databaseUser.role,
             active_status: databaseUser.active_status,
+            expiration_date: databaseUser.expiration_date ?? null,
             sessionVersion: databaseUser.sessionVersion,
             pending_status: databaseUser.active_status ? 'Active' : 'Pending',
             email: databaseUser.email ?? undefined,
@@ -248,6 +268,8 @@ export class UsersService {
         username: string;
         active_status: boolean;
         sessionVersion: number;
+        expiration_date: Date | null;
+        role: string;
     } | undefined> {
         const databaseUser = await this.prisma.users.findUnique({
             where: { id: userId },
@@ -256,6 +278,8 @@ export class UsersService {
                 username: true,
                 active_status: true,
                 sessionVersion: true,
+                expiration_date: true,
+                role: true,
             },
         });
 
@@ -268,6 +292,22 @@ export class UsersService {
             username: databaseUser.username,
             active_status: databaseUser.active_status,
             sessionVersion: databaseUser.sessionVersion,
+            expiration_date: databaseUser.expiration_date,
+            role: databaseUser.role,
         };
     }
+}
+
+function addMonthsClamped(date: Date, months: number): Date {
+    const result = new Date(date);
+    const dayOfMonth = result.getUTCDate();
+    result.setUTCDate(1);
+    result.setUTCMonth(result.getUTCMonth() + months);
+    const lastDayOfMonth = new Date(Date.UTC(
+        result.getUTCFullYear(),
+        result.getUTCMonth() + 1,
+        0,
+    )).getUTCDate();
+    result.setUTCDate(Math.min(dayOfMonth, lastDayOfMonth));
+    return result;
 }

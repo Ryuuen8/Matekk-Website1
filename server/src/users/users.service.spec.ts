@@ -58,6 +58,7 @@ describe('UsersService', () => {
         email: 'waiting@example.com',
         role: 'Student',
         active_status: false,
+        expiration_date: null,
         pending_status: 'Pending',
         module_enrolled: undefined,
       },
@@ -69,6 +70,7 @@ describe('UsersService', () => {
         email: true,
         role: true,
         active_status: true,
+        expiration_date: true,
         programs_enrolled: true,
         enrollments: {
           select: {
@@ -121,6 +123,7 @@ describe('UsersService', () => {
         email: 'enrolled@example.com',
         role: 'Student',
         active_status: false,
+        expiration_date: null,
         pending_status: 'Pending',
         module_enrolled: 'CCNA, CCNA Cybersecurity, CCNA Automation, Security+',
       },
@@ -162,6 +165,7 @@ describe('UsersService', () => {
         password: true,
         role: true,
         active_status: true,
+        expiration_date: true,
         sessionVersion: true,
         email: true,
         first_name: true,
@@ -213,6 +217,7 @@ describe('UsersService', () => {
       role: 'Student',
       active_status: true,
       sessionVersion: 0,
+      expiration_date: null,
       pending_status: 'Active',
       email: 'ccna@example.com',
       module_enrolled: 'CCNA, CCNA Cybersecurity, CCNA Automation',
@@ -247,6 +252,8 @@ describe('UsersService', () => {
       username: 'student',
       active_status: true,
       sessionVersion: 7,
+      expiration_date: null,
+      role: 'Student',
     });
 
     await expect(service.findAuthUserById(42)).resolves.toEqual({
@@ -254,6 +261,8 @@ describe('UsersService', () => {
       username: 'student',
       active_status: true,
       sessionVersion: 7,
+      expiration_date: null,
+      role: 'Student',
     });
     expect(findUnique).toHaveBeenCalledWith({
       where: { id: 42 },
@@ -262,6 +271,8 @@ describe('UsersService', () => {
         username: true,
         active_status: true,
         sessionVersion: true,
+        expiration_date: true,
+        role: true,
       },
     });
   });
@@ -304,6 +315,8 @@ describe('UsersService', () => {
   it('approves an existing user', async () => {
     findUnique.mockResolvedValue({
       active_status: false,
+      expiration_date: null,
+      role: 'Student',
       email: 'waiting@example.com',
       first_name: 'Waiting',
       last_name: 'User',
@@ -311,14 +324,21 @@ describe('UsersService', () => {
     });
     updateMany.mockResolvedValue({ count: 1 });
 
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-31T12:00:00.000Z'));
     await expect(service.approve(42)).resolves.toEqual({
       userId: 42,
       active_status: true,
+      expiration_date: new Date('2026-04-30T12:00:00.000Z'),
     });
+    vi.useRealTimers();
     expect(findUnique).toHaveBeenCalledWith({
       where: { id: 42 },
       select: {
         active_status: true,
+        expiration_date: true,
+        role: true,
+        role: true,
         email: true,
         first_name: true,
         last_name: true,
@@ -327,7 +347,10 @@ describe('UsersService', () => {
     });
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: 42, active_status: false },
-      data: { active_status: true },
+      data: {
+        active_status: true,
+        expiration_date: new Date('2026-04-30T12:00:00.000Z'),
+      },
     });
     expect(sendUserStatusEmail).toHaveBeenCalledWith(
       { name: 'Waiting User', email: 'waiting@example.com' },
@@ -343,8 +366,11 @@ describe('UsersService', () => {
   });
 
   it('does not resend an approval email when the user is already active', async () => {
+    const expirationDate = new Date('2026-12-31T00:00:00.000Z');
     findUnique.mockResolvedValue({
       active_status: true,
+      expiration_date: expirationDate,
+      role: 'Student',
       email: 'active@example.com',
       first_name: 'Active',
       last_name: 'User',
@@ -354,7 +380,32 @@ describe('UsersService', () => {
     await expect(service.approve(42)).resolves.toEqual({
       userId: 42,
       active_status: true,
+      expiration_date: expirationDate,
     });
     expect(sendUserStatusEmail).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not set an expiration date when approving an admin account', async () => {
+    findUnique.mockResolvedValue({
+      active_status: false,
+      expiration_date: null,
+      role: ' Admin ',
+      email: 'admin@example.com',
+      first_name: 'Admin',
+      last_name: 'User',
+      username: 'admin-user',
+    });
+    updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.approve(99)).resolves.toEqual({
+      userId: 99,
+      active_status: true,
+      expiration_date: null,
+    });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 99, active_status: false },
+      data: { active_status: true, expiration_date: null },
+    });
   });
 });

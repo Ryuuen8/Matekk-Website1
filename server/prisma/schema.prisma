@@ -48,6 +48,7 @@ model Users {
   city_province     String       @default("")
   phone_number      String?
   profile_photo     String?
+  expiration_date   DateTime?
 }
 
 model UserGradebook {

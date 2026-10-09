@@ -69,6 +69,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token subject.');
     }
 
+    if (
+      user.role.trim().toLowerCase() !== 'admin' &&
+      user.expiration_date != null &&
+      user.expiration_date.getTime() <= Date.now()
+    ) {
+      throw new UnauthorizedException('Account has expired.');
+    }
+
     return user;
   }
 }

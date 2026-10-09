@@ -9,6 +9,8 @@ describe('JwtStrategy', () => {
     username: 'student',
     active_status: true,
     sessionVersion: 3,
+    expiration_date: null,
+    role: 'Student',
   };
   const findAuthUserById = vi.fn();
 
@@ -71,6 +73,35 @@ describe('JwtStrategy', () => {
       username: 'student',
       sessionVersion: 2,
     })).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects tokens after the account expiration date', async () => {
+    findAuthUserById.mockResolvedValue({
+      ...activeUser,
+      expiration_date: new Date(Date.now() - 1),
+    });
+    const strategy = createStrategy();
+
+    await expect(strategy.validate({
+      sub: 12,
+      username: 'student',
+      sessionVersion: 3,
+    })).rejects.toThrow('Account has expired.');
+  });
+
+  it('allows admins to access the system after their expiration date', async () => {
+    findAuthUserById.mockResolvedValue({
+      ...activeUser,
+      role: 'Admin',
+      expiration_date: new Date(Date.now() - 1),
+    });
+    const strategy = createStrategy();
+
+    await expect(strategy.validate({
+      sub: 12,
+      username: 'student',
+      sessionVersion: 3,
+    })).resolves.toMatchObject({ role: 'Admin' });
   });
 
   it('rejects malformed token claims', async () => {
