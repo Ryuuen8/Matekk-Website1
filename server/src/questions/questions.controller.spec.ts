@@ -28,6 +28,13 @@ describe('QuestionsController', () => {
   });
 
   it('restricts question-bank reads and writes to administrators', () => {
-    expect(Reflect.getMetadata(GUARDS_METADATA, QuestionsController)).toContain(AdminGuard);
+    expect(Reflect.getMetadata(GUARDS_METADATA, controller.createQuestion)).toContain(AdminGuard);
+    expect(Reflect.getMetadata(GUARDS_METADATA, controller.findAll)).toContain(AdminGuard);
+  });
+
+  it('leaves student exam attempts available to authenticated accounts without the admin guard', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, controller.startExam)).toBeUndefined();
+    expect(Reflect.getMetadata(GUARDS_METADATA, controller.resumeExam)).toBeUndefined();
+    expect(Reflect.getMetadata(GUARDS_METADATA, controller.submitExam)).toBeUndefined();
   });
 });

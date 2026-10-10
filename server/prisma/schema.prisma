@@ -41,6 +41,7 @@ model Users {
   pending_status    String       @default("Pending")
   enrollments       Enrollment[]
   gradebooks        UserGradebook[]
+  examAttempts      ExamAttempt[]
   first_name        String       @default("")
   last_name         String       @default("")
   birth_date        DateTime     @default(now())
@@ -62,6 +63,21 @@ model UserGradebook {
 
   @@unique([userId, programKey])
   @@index([programKey])
+}
+
+model ExamAttempt {
+  id              String    @id
+  userId          Int
+  examKey         String
+  questionSet     Json      @db.JsonB
+  durationSeconds Int
+  deadline        DateTime
+  score           Int?
+  review          Json?     @db.JsonB
+  submittedAt     DateTime?
+  user            Users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, examKey])
 }
 
 model AuthLoginAttempt {
@@ -97,6 +113,8 @@ model Questions {
   correct_answer String
   explanation    String
   imageUrl       String?
+  question_type  String @default("single")
+  match_items    Json?  @db.JsonB
 }
 
 model Program {

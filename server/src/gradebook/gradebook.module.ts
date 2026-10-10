@@ -7,5 +7,6 @@ import { UsersModule } from '../users/users.module.js';
   imports: [UsersModule],
   controllers: [GradebookController],
   providers: [GradebookService],
+  exports: [GradebookService],
 })
 export class GradebookModule {}

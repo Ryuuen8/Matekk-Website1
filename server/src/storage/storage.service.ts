@@ -57,7 +57,39 @@ export class StorageService {
       throw new Error('Failed to upload question image to Supabase Storage.', { cause: error });
     }
 
-    const { data } = this.supabase.storage.from(BUCKET_NAME).getPublicUrl(objectPath);
-    return data.publicUrl;
+    return objectPath;
+  }
+
+  async createSignedQuestionImageUrls(paths: string[]): Promise<Map<string, string>> {
+    const uniquePaths = [...new Set(paths)];
+    if (uniquePaths.length === 0) return new Map();
+
+    for (const path of uniquePaths) {
+      if (!/^questions\/[A-Za-z0-9][A-Za-z0-9._/-]*\.(gif|jpe?g|png|webp)$/i.test(path) || path.includes('..')) {
+        throw new Error('Question image paths must point to supported files in the questions folder.');
+      }
+    }
+
+    const { data, error } = await this.supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUrls(uniquePaths, 3600);
+
+    if (error) {
+      throw new Error('Failed to create signed URLs for question images.', { cause: error });
+    }
+
+    const signedUrls = new Map<string, string>();
+    for (const item of data) {
+      if (!item.path || !item.signedUrl || item.error) {
+        throw new Error(`Failed to create a signed URL for question image "${item.path ?? 'unknown'}".`);
+      }
+      signedUrls.set(item.path, item.signedUrl);
+    }
+
+    if (signedUrls.size !== uniquePaths.length) {
+      throw new Error('Supabase returned an incomplete set of signed question image URLs.');
+    }
+
+    return signedUrls;
   }
 }

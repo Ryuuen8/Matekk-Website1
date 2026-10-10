@@ -1,12 +1,18 @@
 import {
+    IsOptional,
     ArrayMaxSize,
     ArrayMinSize,
     IsArray,
     IsIn,
     IsString,
+    IsInt,
     Length,
     MaxLength,
+    Min,
+    ValidateIf,
+    ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateQuestionDto {
     @IsString()
@@ -28,14 +34,63 @@ export class CreateQuestionDto {
     @ArrayMinSize(2)
     @ArrayMaxSize(8)
     @IsString({ each: true })
-    @MaxLength(500, { each: true })
+    @Length(1, 500, { each: true })
     choices: string[];
 
+    @IsOptional()
+    @IsIn(['single', 'match'])
+    question_type?: 'single' | 'match';
+
+    @ValidateIf((question) => question.question_type === 'match')
+    @IsArray()
+    @ArrayMinSize(2)
+    @ArrayMaxSize(8)
+    @IsString({ each: true })
+    @Length(1, 500, { each: true })
+    match_items?: string[];
+
+    @ValidateIf((question) => question.question_type === 'match')
+    @IsArray()
+    @ArrayMinSize(2)
+    @ArrayMaxSize(8)
+    @IsInt({ each: true })
+    @Min(0, { each: true })
+    match_answer?: number[];
+
+    @ValidateIf((question) => question.question_type !== 'match')
     @IsString()
     @Length(1, 500)
-    correct_answer: string;
+    correct_answer?: string;
 
     @IsString()
     @MaxLength(5000)
     explanation: string;
+}
+
+export class ExamAnswerDto {
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    questionId: number;
+
+    @ValidateIf((answer) => answer.selectedMatches === undefined)
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    selectedAnswer?: string | null;
+
+    @ValidateIf((answer) => answer.selectedAnswer === undefined)
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(8)
+    selectedMatches?: (number | null)[] | null;
+}
+
+// Bound nested answer validation to the largest supported exam format.
+export class SubmitExamDto {
+    @IsArray()
+    @ArrayMaxSize(150)
+    @ValidateNested({ each: true })
+    @Type(() => ExamAnswerDto)
+    answers: ExamAnswerDto[];
 }

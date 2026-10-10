@@ -40,6 +40,9 @@ deploying server code that depends on schema changes. Session-version tracking
 uses a database migration, and existing sign-in cookies become invalid when
 the new code is deployed. Registration email verification also requires its
 pending Prisma migration to be applied before deployment.
+CCNA exam attempts and matching questions also require the pending exam and
+matching-question Prisma migrations. The matching-question migration adds
+schema fields only; question rows must be loaded separately.
 Automatic registration and approval emails use EmailJS. Configure
 `EMAILJS_SERVICE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`,
 `EMAILJS_USER_TEMPLATE_ID`, and `EMAILJS_ADMIN_TEMPLATE_ID`. Set
@@ -79,6 +82,12 @@ comma-separated list of allowed origins.
 Observe telemetry is optional. To enable it, set both `OBSERVE_APP_KEY` and
 `OBSERVE_APP_SECRET`; otherwise telemetry is disabled. `OBSERVE_SERVICE_ID`
 defaults to `server`.
+Private CCNA question images use a private Supabase Storage bucket named
+`question-images`.
+Configure `SUPABASE_URL` with the project API URL and
+`SUPABASE_SERVICE_ROLE_KEY` with the server-only service-role key. Store image
+objects under `questions/`; the question-bank and exam endpoints return
+time-limited signed image URLs.
 
 ```bash
 # development
