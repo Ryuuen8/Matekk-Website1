@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { json, urlencoded } from 'express';
 import {
-  AppModule,
+  AppModul
   isObserveEnabled,
   ObserveInstrument,
 } from './app.module.js';
