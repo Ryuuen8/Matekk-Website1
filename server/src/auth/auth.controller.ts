@@ -128,6 +128,7 @@ export class AuthController {
     }
 
     @HttpCode(HttpStatus.OK)
+    @Public()
     @Post('logout')
     @AllowPendingAccount()
     async logout(
