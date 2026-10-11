@@ -37,7 +37,7 @@ export class AuthService {
         });
     }
 
-    async requestRegistrationEmailOtp(email: string): Promise<void> {
+    async requestRegistrationEmailOtp(email: string): Promise<boolean> {
         const normalizedEmail = email.trim().toLowerCase();
         const exists = await this.prisma.users.findFirst({
             where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
@@ -46,7 +46,7 @@ export class AuthService {
         if (exists) {
             throw new ConflictException('An account with this email already exists.');
         }
-        await this.otpService.request(normalizedEmail, 'REGISTRATION');
+        return this.otpService.request(normalizedEmail, 'REGISTRATION');
     }
 
     verifyRegistrationEmail(email: string, code: string) {
@@ -125,7 +125,7 @@ export class AuthService {
     async signIn(
         username: string,
         pass: string,
-    ): Promise<{ requiresOtp: true; maskedEmail: string }> {
+    ): Promise<{ requiresOtp: true; maskedEmail: string; emailSent: boolean }> {
         const user = await this.usersService.findOne(username);
         if (!user) {
             throw new UnauthorizedException();
@@ -152,9 +152,9 @@ export class AuthService {
         if (!normalizedEmail || !localPart || !domain) {
             throw new UnauthorizedException('Email verification is unavailable for this account.');
         }
-        await this.otpService.request(normalizedEmail, 'LOGIN');
+        const emailSent = await this.otpService.request(normalizedEmail, 'LOGIN');
         const maskedEmail = `${localPart.slice(0, 1)}${'*'.repeat(Math.min(Math.max(localPart.length - 1, 3), 8))}@${domain}`;
-        return { requiresOtp: true, maskedEmail };
+        return { requiresOtp: true, maskedEmail, emailSent };
     }
 
     async verifySignInOtp(

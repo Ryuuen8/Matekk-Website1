@@ -51,7 +51,7 @@ describe('OtpService', () => {
   it('stores a hash and emails a six-digit code to a normalized address', async () => {
     const service = createService();
 
-    await service.request(' User@Example.com ', 'PASSWORD_RESET');
+    await expect(service.request(' User@Example.com ', 'PASSWORD_RESET')).resolves.toBe(true);
 
     expect(deleteMany).toHaveBeenCalledWith({
       where: { email: 'user@example.com', purpose: 'PASSWORD_RESET' },
@@ -66,6 +66,27 @@ describe('OtpService', () => {
     expect(email).toBe('user@example.com');
     expect(code).toMatch(/^\d{6}$/);
     expect(expiresInMinutes).toBe(5);
+  });
+
+  it('reuses a valid unexpired code instead of sending another email', async () => {
+    findFirst.mockResolvedValue({ id: 1 });
+    const service = createService();
+
+    await expect(service.request(' User@Example.com ', 'LOGIN')).resolves.toBe(false);
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        email: 'user@example.com',
+        purpose: 'LOGIN',
+        consumedAt: null,
+        expiresAt: { gt: expect.any(Date) },
+        attempts: { lt: 5 },
+      },
+      select: { id: true },
+    });
+    expect(deleteMany).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(sendOtp).not.toHaveBeenCalled();
   });
 
   it('removes the stored code and rethrows when email delivery fails', async () => {

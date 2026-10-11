@@ -43,11 +43,26 @@ export class OtpService {
       .digest('hex');
   }
 
-  async request(email: string, purpose: OtpPurpose): Promise<void> {
+  async request(email: string, purpose: OtpPurpose): Promise<boolean> {
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedPurpose = purpose.trim();
     if (!normalizedEmail || !normalizedPurpose) {
       throw new BadRequestException('An email and OTP purpose are required.');
+    }
+
+    const now = new Date();
+    const activeCode = await this.prisma.otpCode.findFirst({
+      where: {
+        email: normalizedEmail,
+        purpose: normalizedPurpose,
+        consumedAt: null,
+        expiresAt: { gt: now },
+        attempts: { lt: MAX_ATTEMPTS },
+      },
+      select: { id: true },
+    });
+    if (activeCode) {
+      return false;
     }
 
     const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
@@ -74,6 +89,7 @@ export class OtpService {
       await this.prisma.otpCode.deleteMany({ where: { id: record.id } });
       throw error;
     }
+    return true;
   }
 
   async verify(

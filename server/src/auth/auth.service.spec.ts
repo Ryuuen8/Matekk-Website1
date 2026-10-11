@@ -37,7 +37,7 @@ describe('AuthService', () => {
     const enrollmentFindMany = vi.fn(async () => []);
     const sendUserStatusEmail = vi.fn(async () => undefined);
     const sendAdminNotification = vi.fn(async () => undefined);
-    const request = vi.fn(async () => undefined);
+    const request = vi.fn(async () => true);
     const verifyEmail = vi.fn(async () => ({ verificationToken: 'v'.repeat(43) }));
     const consumeVerification = vi.fn(async () => undefined);
     const service = new AuthService(
@@ -150,7 +150,7 @@ describe('AuthService', () => {
     const mocks = createService({ foundUser: hashedUser });
 
     await expect(mocks.service.signIn('student', 'plain-password'))
-      .resolves.toEqual({ requiresOtp: true, maskedEmail: 's******@example.com' });
+      .resolves.toEqual({ requiresOtp: true, maskedEmail: 's******@example.com', emailSent: true });
 
     expect(mocks.verify).toHaveBeenCalledWith(hashedUser.password, 'plain-password');
     expect(mocks.request).toHaveBeenCalledWith('student@example.com', 'LOGIN');
@@ -210,6 +210,14 @@ describe('AuthService', () => {
       data: { password: '$argon2id$migrated-hash' },
     });
     expect(mocks.request).toHaveBeenCalledWith('student@example.com', 'LOGIN');
+  });
+
+  it('reports when an existing sign-in code was reused instead of sending another email', async () => {
+    const mocks = createService();
+    mocks.request.mockResolvedValue(false);
+
+    await expect(mocks.service.signIn('student', 'plain-password'))
+      .resolves.toMatchObject({ requiresOtp: true, emailSent: false });
   });
 
   it('rejects an incorrect password without changing the saved password', async () => {

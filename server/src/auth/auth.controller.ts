@@ -59,8 +59,13 @@ export class AuthController {
             3,
             15 * 60 * 1000,
         );
-        await this.authService.requestRegistrationEmailOtp(email);
-        return { message: 'A verification code was sent to your email.' };
+        const emailSent = await this.authService.requestRegistrationEmailOtp(email);
+        return {
+            message: emailSent
+                ? 'A verification code was sent to your email.'
+                : 'A valid verification code was already sent. Please use that code.',
+            emailSent,
+        };
     }
 
     @Public()

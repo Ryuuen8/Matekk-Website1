@@ -45,7 +45,7 @@ describe('AuthController', () => {
     invalidateSession.mockResolvedValue(undefined);
     consume.mockResolvedValue(true);
     consumeOtpRateLimit.mockResolvedValue(undefined);
-    requestRegistrationEmailOtp.mockResolvedValue(undefined);
+    requestRegistrationEmailOtp.mockResolvedValue(true);
     verifyRegistrationEmail.mockResolvedValue({ verificationToken: 'proof' });
     getProfile.mockResolvedValue({ userId: 12 });
     updateProfile.mockResolvedValue({ userId: 12 });
@@ -92,6 +92,7 @@ describe('AuthController', () => {
       { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' } } as never,
     )).resolves.toEqual({
       message: 'A verification code was sent to your email.',
+      emailSent: true,
     });
 
     expect(consumeOtpRateLimit).toHaveBeenCalledWith(
@@ -120,6 +121,7 @@ describe('AuthController', () => {
     signIn.mockResolvedValue({
       requiresOtp: true,
       maskedEmail: 's***@example.com',
+      emailSent: true,
     });
     await expect(
       controller.signIn(
@@ -129,6 +131,7 @@ describe('AuthController', () => {
     ).resolves.toEqual({
       requiresOtp: true,
       maskedEmail: 's***@example.com',
+      emailSent: true,
     });
 
     expect(consume).toHaveBeenCalledWith('192.0.2.1', 'student');
