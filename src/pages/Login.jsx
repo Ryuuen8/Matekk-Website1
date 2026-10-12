@@ -188,7 +188,9 @@ export default function Login() {
         setLoginOtpRequired(true);
         setLoginMaskedEmail(result.maskedEmail);
         setLoginOtp("");
-        setMsg(`A verification code was sent to ${result.maskedEmail}.`);
+        setMsg(result.emailSent === false
+          ? `A valid verification code was already sent to ${result.maskedEmail}. Use that code.`
+          : `A verification code was sent to ${result.maskedEmail}.`);
         return;
       }
 
@@ -254,10 +256,13 @@ export default function Login() {
           setMsg(message || "Unable to send the verification code.");
           return;
         }
+        const { emailSent } = await response.json();
         setRegistrationOtp("");
         setEmailVerificationToken("");
         setRegistrationStep(3);
-        setMsg("Enter the verification code sent to your email.");
+        setMsg(emailSent === false
+          ? "A valid verification code was already sent. Check your inbox and use that code."
+          : "Enter the verification code sent to your email.");
       } catch (error) {
         console.error("Unable to request registration email verification.", error);
         setMsg("Unable to connect to the registration server.");
@@ -666,9 +671,12 @@ export default function Login() {
                               setMsg(message || "Unable to resend the verification code.");
                               return;
                             }
+                            const { emailSent } = await response.json();
                             setRegistrationOtp("");
                             setEmailVerificationToken("");
-                            setMsg("A new verification code was sent.");
+                            setMsg(emailSent === false
+                              ? "A valid verification code was already sent. Use that code."
+                              : "A new verification code was sent.");
                           } catch (error) {
                             console.error("Unable to resend registration email verification.", error);
                             setMsg("Unable to connect to the registration server.");
