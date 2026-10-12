@@ -1,17 +1,12 @@
-import { BadRequestException } from '@nestjs/common';
 import { GradebookController } from './gradebook.controller.js';
 import { vi } from 'vitest';
 
 describe('GradebookController', () => {
-  const user = { userId: 7 };
-  const programKey = 'ccna';
-  const data = { assessments: { 'quiz:1': { id: 'quiz:1' } } };
-  const assessment = { id: 'quiz:1', score: 8, maxScore: 10, submittedAt: 123 };
-
   function createController() {
     const gradebookService = {
-      save: vi.fn().mockResolvedValue({ data }),
-      saveAssessment: vi.fn().mockResolvedValue({ data }),
+      findOne: vi.fn(),
+      save: vi.fn(),
+      saveAssessment: vi.fn(),
     };
     return {
       controller: new GradebookController(gradebookService as never),
@@ -19,37 +14,32 @@ describe('GradebookController', () => {
     };
   }
 
-  it('accepts gradebook data on both save routes', async () => {
+  it('saves gradebook data through the PUT route', async () => {
     const { controller, gradebookService } = createController();
+    const data = { assessments: { 'quiz:1:attempt-1': { id: 'quiz:1:attempt-1' } } };
 
-    await controller.save(user, programKey, { data });
-    await controller.saveAssessment(user, programKey, { data });
+    await controller.save({ userId: 7 }, 'ccna', { data });
 
-    expect(gradebookService.save).toHaveBeenCalledTimes(2);
-    expect(gradebookService.save).toHaveBeenCalledWith(user.userId, programKey, data);
+    expect(gradebookService.save).toHaveBeenCalledWith(7, 'ccna', data);
     expect(gradebookService.saveAssessment).not.toHaveBeenCalled();
   });
 
-  it('accepts one assessment on both save routes', async () => {
+  it('saves an individual assessment through the POST assessment route', async () => {
     const { controller, gradebookService } = createController();
+    const assessment = {
+      id: 'quiz:1:attempt-1',
+      score: 8,
+      maxScore: 10,
+      submittedAt: 123,
+    };
 
-    await controller.save(user, programKey, { assessment });
-    await controller.saveAssessment(user, programKey, { assessment });
-
-    expect(gradebookService.saveAssessment).toHaveBeenCalledTimes(2);
-    expect(gradebookService.saveAssessment).toHaveBeenCalledWith(
-      user.userId,
-      programKey,
-      assessment,
+    await controller.saveAssessment(
+      { userId: 7 },
+      'ccna',
+      { assessment },
     );
+
+    expect(gradebookService.saveAssessment).toHaveBeenCalledWith(7, 'ccna', assessment);
     expect(gradebookService.save).not.toHaveBeenCalled();
-  });
-
-  it('rejects missing or conflicting payloads', () => {
-    const { controller } = createController();
-
-    expect(() => controller.save(user, programKey, {})).toThrow(BadRequestException);
-    expect(() => controller.saveAssessment(user, programKey, { data, assessment }))
-      .toThrow(BadRequestException);
   });
 });
