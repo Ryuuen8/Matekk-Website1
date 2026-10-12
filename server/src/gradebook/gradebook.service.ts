@@ -89,6 +89,15 @@ export class GradebookService {
     });
   }
 
+  async saveAssessment(
+    userId: number,
+    programKey: string,
+    assessment: Record<string, unknown>,
+  ) {
+    await this.programAccess.assertEnrollment(userId, programKey);
+    return this.recordAssessment(userId, programKey, assessment);
+  }
+
   private async mergeAssessments(
     userId: number,
     programKey: string,
