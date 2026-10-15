@@ -25,7 +25,7 @@ import { RateLimitService } from './rate-limit.service.js';
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_SECRET'),
         signOptions: {
-          expiresIn: config.get('JWT_EXPIRES_IN', '15m'),
+          expiresIn: config.get('JWT_EXPIRES_IN', '24h'),
           algorithm: 'HS256',
         },
       }),
