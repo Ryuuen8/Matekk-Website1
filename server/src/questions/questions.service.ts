@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { StorageService } from '../storage/storage.service.js';
 import { GradebookService } from '../gradebook/gradebook.service.js';
+import { parseDragDropAnswer } from './drag-drop-answer.js';
 
 const EXAM_CONFIG = {
   short: { questionCount: 50, durationSeconds: 45 * 60, title: 'Short Exam' },
@@ -331,6 +332,26 @@ export class QuestionsService {
     correct_answer: string | null;
     imageUrl?: string | null;
   }): ExamQuestion | null {
+    if (
+      record.question_text?.trim() &&
+      !record.choices?.trim() &&
+      (!record.question_type || record.question_type === 'single')
+    ) {
+      const dragDrop = parseDragDropAnswer(record.correct_answer, record.id);
+      return dragDrop
+        ? {
+          id: record.id,
+          prompt: record.question_text.trim(),
+          imageUrl: record.imageUrl ?? null,
+          type: 'match',
+          items: dragDrop.items,
+          choices: dragDrop.choices,
+          module: record.module,
+          topic: record.topic,
+        }
+        : null;
+    }
+
     // Ignore malformed bank rows so only questions that can be safely rendered and graded are selected.
     if (!record.question_text?.trim() || !record.choices || !record.correct_answer) return null;
 
@@ -620,13 +641,8 @@ export class QuestionsService {
       },
       orderBy: { id: 'asc' },
     });
-    const imagePaths = [...new Set(rows.flatMap((row) => {
-      const imageUrl = row.imageUrl;
-      return imageUrl && !/^https?:\/\//i.test(imageUrl) ? [imageUrl] : [];
-    }))];
-    const signedUrls = await this.storage.createSignedQuestionImageUrls(imagePaths);
-
-    return rows.map((row) => ({
+    const signedRows = await this.signQuestionImages(rows);
+    return signedRows.map((row) => ({
       id: row.id,
       module: row.module,
       topic: row.topic,
@@ -635,6 +651,60 @@ export class QuestionsService {
       choices: row.choices,
       question_type: row.question_type,
       match_items: row.match_items,
+      imageUrl: row.imageUrl,
+    }));
+  }
+
+  async findUsableBank() {
+    const rows = await this.prisma.questions.findMany({
+      select: {
+        id: true,
+        module: true,
+        topic: true,
+        question_text: true,
+        choices: true,
+        correct_answer: true,
+        explanation: true,
+        question_type: true,
+        match_items: true,
+        imageUrl: true,
+      },
+      orderBy: { id: 'asc' },
+    });
+    const signedRows = await this.signQuestionImages(rows);
+    const questions = signedRows.flatMap((row) => {
+      const question = this.readQuestion(row);
+      if (!question) return [];
+
+      const answer = question.type === 'match'
+        ? row.question_type === 'match'
+          ? this.parseMatchAnswer(row.correct_answer, question.items.length, question.choices.length)
+          : parseDragDropAnswer(row.correct_answer, row.id)?.answer
+        : question.options.indexOf(this.findCorrectOption(question.options, row.correct_answer) ?? '');
+      if (answer === undefined || answer === -1 || (Array.isArray(answer) && answer.length === 0)) {
+        return [];
+      }
+
+      return [{
+        ...question,
+        bankId: row.id,
+        answer,
+        explanation: row.explanation,
+        source: 'question-bank',
+      }];
+    });
+
+    return { questions, skippedCount: rows.length - questions.length };
+  }
+
+  private async signQuestionImages<T extends { imageUrl: string | null }>(rows: T[]) {
+    const imagePaths = [...new Set(rows.flatMap((row) =>
+      row.imageUrl && !/^https?:\/\//i.test(row.imageUrl) ? [row.imageUrl] : [],
+    ))];
+    const signedUrls = await this.storage.createSignedQuestionImageUrls(imagePaths);
+
+    return rows.map((row) => ({
+      ...row,
       imageUrl: row.imageUrl ? signedUrls.get(row.imageUrl) ?? row.imageUrl : null,
     }));
   }

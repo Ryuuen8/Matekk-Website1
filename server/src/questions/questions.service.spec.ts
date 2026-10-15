@@ -415,4 +415,106 @@ describe('QuestionsService', () => {
     expect(result[0]).not.toHaveProperty('explanation');
     expect(storage.createSignedQuestionImageUrls).toHaveBeenCalledWith([row.imageUrl]);
   });
+
+  it('returns normalized usable bank questions and counts skipped rows', async () => {
+    prismaMock.questions.findMany.mockResolvedValue([
+      {
+        id: 1,
+        module: 'CCNA',
+        topic: 'Routing',
+        question_text: 'Which option is correct?',
+        choices: JSON.stringify(['Wrong', 'Correct']),
+        correct_answer: 'Correct',
+        explanation: 'The second option is correct.',
+        question_type: 'single',
+        match_items: null,
+        imageUrl: null,
+      },
+      {
+        id: 2,
+        module: 'CCNA',
+        topic: 'Addressing',
+        question_text: 'Match each item.',
+        choices: JSON.stringify(['Blue', 'Red']),
+        correct_answer: '[0,1]',
+        explanation: '',
+        question_type: 'match',
+        match_items: ['Sky', 'Stop sign'],
+        imageUrl: null,
+      },
+      {
+        id: 3,
+        module: 'CCNA',
+        topic: 'Switching',
+        question_text: 'Classify each technology.',
+        choices: null,
+        correct_answer: 'Routers:\n+ OSPF\n+ EIGRP\nSwitches:\n+ VLAN\n+ STP',
+        explanation: '',
+        question_type: 'single',
+        match_items: null,
+        imageUrl: null,
+      },
+      {
+        id: 4,
+        module: 'CCNA',
+        topic: 'Routing',
+        question_text: 'Invalid question',
+        choices: null,
+        correct_answer: null,
+        explanation: '',
+        question_type: 'single',
+        match_items: null,
+        imageUrl: null,
+      },
+    ]);
+
+    const result = await service.findUsableBank();
+
+    expect(result).toEqual({
+      questions: [
+        {
+          id: 1,
+          prompt: 'Which option is correct?',
+          imageUrl: null,
+          type: 'single',
+          options: ['Wrong', 'Correct'],
+          module: 'CCNA',
+          topic: 'Routing',
+          bankId: 1,
+          answer: 1,
+          explanation: 'The second option is correct.',
+          source: 'question-bank',
+        },
+        {
+          id: 2,
+          prompt: 'Match each item.',
+          imageUrl: null,
+          type: 'match',
+          items: ['Sky', 'Stop sign'],
+          choices: ['Blue', 'Red'],
+          module: 'CCNA',
+          topic: 'Addressing',
+          bankId: 2,
+          answer: [0, 1],
+          explanation: '',
+          source: 'question-bank',
+        },
+        {
+          id: 3,
+          prompt: 'Classify each technology.',
+          imageUrl: null,
+          type: 'match',
+          items: ['EIGRP', 'STP', 'OSPF', 'VLAN'],
+          choices: ['Routers', 'Switches'],
+          module: 'CCNA',
+          topic: 'Switching',
+          bankId: 3,
+          answer: [0, 1, 0, 1],
+          explanation: '',
+          source: 'question-bank',
+        },
+      ],
+      skippedCount: 1,
+    });
+  });
 });

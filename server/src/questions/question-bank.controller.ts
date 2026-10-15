@@ -12,4 +12,10 @@ export class QuestionBankController {
   findBank() {
     return this.questionsService.findBank();
   }
+
+  @Get('all-usable')
+  @Header('Cache-Control', 'private, max-age=300')
+  findUsableBank() {
+    return this.questionsService.findUsableBank();
+  }
 }
