@@ -284,6 +284,20 @@ describe('QuestionsService', () => {
     expect(prismaMock.examAttempt.create.mock.calls[0][0].data.userId).toBe(7);
   });
 
+  it('uses an extra one-to-one drag-and-drop question for the click-the-boxes interaction when needed', async () => {
+    const databaseQuestions = examQuestionBank(50).map((question) =>
+      question.question_type === 'click_boxes'
+        ? { ...question, question_type: 'drag_drop' }
+        : question,
+    );
+    prismaMock.questions.findMany.mockResolvedValue(databaseQuestions);
+
+    const attempt = await service.startExam('short', 7);
+
+    expect(attempt.questions.filter((question) => question.type === 'drag_drop')).toHaveLength(3);
+    expect(attempt.questions.filter((question) => question.type === 'click_boxes')).toHaveLength(1);
+  });
+
   it('returns shuffled group sizes for grouped matching questions without exposing their answer keys', async () => {
     const databaseQuestions = examQuestionBank(50).map((question) =>
       question.id === 50

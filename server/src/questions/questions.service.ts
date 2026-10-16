@@ -140,27 +140,38 @@ export class QuestionsService {
     const requiredImages = questionBlocks * QUESTIONS_PER_BLOCK.image;
     const requiredMatches = questionBlocks * QUESTIONS_PER_BLOCK.match;
     const matchingQuestions = usableQuestions.filter((question) => question.type === 'match');
-    const dragDropQuestions = usableQuestions.filter((question) => question.type === 'drag_drop');
+    const dragDropQuestions = usableQuestions.filter(
+      (question): question is MatchExamQuestion => question.type === 'drag_drop',
+    );
     const clickBoxesQuestions = usableQuestions.filter((question) => question.type === 'click_boxes');
     const imageQuestions = usableQuestions.filter((question) => question.type === 'image');
     const singleQuestions = usableQuestions.filter((question) => question.type === 'single');
     const requiredSingles = questionBlocks * QUESTIONS_PER_BLOCK.single;
+    const missingClickBoxes = Math.max(0, requiredClickBoxes - clickBoxesQuestions.length);
+    const randomizedDragDropPool = this.shuffle(dragDropQuestions);
+    const borrowedClickBoxes = missingClickBoxes > 0
+      ? randomizedDragDropPool.slice(requiredDragDrop, requiredDragDrop + missingClickBoxes)
+      : [];
     if (
-      dragDropQuestions.length < requiredDragDrop ||
-      clickBoxesQuestions.length < requiredClickBoxes ||
+      dragDropQuestions.length < requiredDragDrop + missingClickBoxes ||
+      clickBoxesQuestions.length + borrowedClickBoxes.length < requiredClickBoxes ||
       imageQuestions.length < requiredImages ||
       matchingQuestions.length < requiredMatches ||
       singleQuestions.length < requiredSingles
     ) {
       throw new BadRequestException(
         `This exam requires ${requiredMatches} connect-the-dots, ${requiredDragDrop} drag-and-drop, ${requiredClickBoxes} click-the-boxes, ${requiredImages} image-based, and ${requiredSingles} multiple-choice questions. ` +
-        `The Questions table has ${matchingQuestions.length} valid connect-the-dots, ${dragDropQuestions.length} valid drag-and-drop, ${clickBoxesQuestions.length} valid click-the-boxes, ${imageQuestions.length} valid image-based, and ${singleQuestions.length} valid multiple-choice questions.`,
+        `The Questions table has ${matchingQuestions.length} valid connect-the-dots, ${dragDropQuestions.length} valid drag-and-drop (including one-to-one questions eligible for the click-the-boxes interaction), ${clickBoxesQuestions.length} valid click-the-boxes, ${imageQuestions.length} valid image-based, and ${singleQuestions.length} valid multiple-choice questions.`,
       );
     }
 
     const randomizedMatches = this.shuffle(matchingQuestions);
-    const randomizedDragDrop = this.shuffle(dragDropQuestions);
-    const randomizedClickBoxes = this.shuffle(clickBoxesQuestions);
+    const borrowedIds = new Set(borrowedClickBoxes.map(({ id }) => id));
+    const randomizedDragDrop = randomizedDragDropPool.filter(({ id }) => !borrowedIds.has(id));
+    const randomizedClickBoxes = this.shuffle([
+      ...clickBoxesQuestions,
+      ...borrowedClickBoxes.map((question) => ({ ...question, type: 'click_boxes' as const })),
+    ]);
     const randomizedImages = this.shuffle(imageQuestions);
     const randomizedSingles = this.shuffle(singleQuestions);
     const selectedQuestions = Array.from({ length: questionBlocks }, (_, blockIndex) => [
