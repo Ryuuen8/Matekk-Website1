@@ -29,7 +29,7 @@ type ExamQuestionBase = {
 };
 type SingleExamQuestion = ExamQuestionBase & { type: 'single' };
 type MatchExamQuestion = Omit<ExamQuestionBase, 'options'> & {
-  type: 'match' | 'drag_drop' | 'image';
+  type: 'match' | 'drag_drop' | 'click_boxes' | 'image';
   items: string[];
   choices: string[];
   groupSizes?: number[];
@@ -39,8 +39,9 @@ type ExamQuestion = SingleExamQuestion | MatchExamQuestion;
 const QUESTIONS_PER_BLOCK = {
   match: 5,
   dragDrop: 3,
+  clickBoxes: 1,
   image: 1,
-  single: 41,
+  single: 40,
 } as const;
 
 @Injectable()
@@ -71,6 +72,11 @@ export class QuestionsService {
       if (questionType === 'drag_drop' &&
         new Set(data.match_answer).size !== data.match_answer.length) {
         throw new BadRequestException('Each drag-and-drop item must use a different answer choice.');
+      }
+      if (questionType === 'click_boxes' &&
+        (data.match_items.length !== data.choices.length ||
+          new Set(data.match_answer).size !== data.match_answer.length)) {
+        throw new BadRequestException('Click-the-boxes questions must use each answer choice exactly once.');
       }
       if (questionType === 'image' && !data.imageUrl?.trim()) {
         throw new BadRequestException('An image question must include an image URL.');
@@ -130,32 +136,37 @@ export class QuestionsService {
     // Persist each randomized set so a resumed attempt keeps the same questions and option order.
     const questionBlocks = config.questionCount / 50;
     const requiredDragDrop = questionBlocks * QUESTIONS_PER_BLOCK.dragDrop;
+    const requiredClickBoxes = questionBlocks * QUESTIONS_PER_BLOCK.clickBoxes;
     const requiredImages = questionBlocks * QUESTIONS_PER_BLOCK.image;
     const requiredMatches = questionBlocks * QUESTIONS_PER_BLOCK.match;
     const matchingQuestions = usableQuestions.filter((question) => question.type === 'match');
     const dragDropQuestions = usableQuestions.filter((question) => question.type === 'drag_drop');
+    const clickBoxesQuestions = usableQuestions.filter((question) => question.type === 'click_boxes');
     const imageQuestions = usableQuestions.filter((question) => question.type === 'image');
     const singleQuestions = usableQuestions.filter((question) => question.type === 'single');
     const requiredSingles = questionBlocks * QUESTIONS_PER_BLOCK.single;
     if (
       dragDropQuestions.length < requiredDragDrop ||
+      clickBoxesQuestions.length < requiredClickBoxes ||
       imageQuestions.length < requiredImages ||
       matchingQuestions.length < requiredMatches ||
       singleQuestions.length < requiredSingles
     ) {
       throw new BadRequestException(
-        `This exam requires ${requiredMatches} connect-the-dots, ${requiredDragDrop} drag-and-drop, ${requiredImages} image-based, and ${requiredSingles} multiple-choice questions. ` +
-        `The Questions table has ${matchingQuestions.length} valid connect-the-dots, ${dragDropQuestions.length} valid drag-and-drop, ${imageQuestions.length} valid image-based, and ${singleQuestions.length} valid multiple-choice questions.`,
+        `This exam requires ${requiredMatches} connect-the-dots, ${requiredDragDrop} drag-and-drop, ${requiredClickBoxes} click-the-boxes, ${requiredImages} image-based, and ${requiredSingles} multiple-choice questions. ` +
+        `The Questions table has ${matchingQuestions.length} valid connect-the-dots, ${dragDropQuestions.length} valid drag-and-drop, ${clickBoxesQuestions.length} valid click-the-boxes, ${imageQuestions.length} valid image-based, and ${singleQuestions.length} valid multiple-choice questions.`,
       );
     }
 
     const randomizedMatches = this.shuffle(matchingQuestions);
     const randomizedDragDrop = this.shuffle(dragDropQuestions);
+    const randomizedClickBoxes = this.shuffle(clickBoxesQuestions);
     const randomizedImages = this.shuffle(imageQuestions);
     const randomizedSingles = this.shuffle(singleQuestions);
     const selectedQuestions = Array.from({ length: questionBlocks }, (_, blockIndex) => [
       ...randomizedMatches.slice(blockIndex * QUESTIONS_PER_BLOCK.match, (blockIndex + 1) * QUESTIONS_PER_BLOCK.match),
       ...randomizedDragDrop.slice(blockIndex * QUESTIONS_PER_BLOCK.dragDrop, (blockIndex + 1) * QUESTIONS_PER_BLOCK.dragDrop),
+      ...randomizedClickBoxes.slice(blockIndex * QUESTIONS_PER_BLOCK.clickBoxes, (blockIndex + 1) * QUESTIONS_PER_BLOCK.clickBoxes),
       ...randomizedImages.slice(blockIndex * QUESTIONS_PER_BLOCK.image, (blockIndex + 1) * QUESTIONS_PER_BLOCK.image),
       ...randomizedSingles.slice(blockIndex * QUESTIONS_PER_BLOCK.single, (blockIndex + 1) * QUESTIONS_PER_BLOCK.single),
     ]).flatMap((block) => this.shuffle(block));
@@ -254,6 +265,11 @@ export class QuestionsService {
         if (correctAnswer.some((index) => index < 0)) {
           throw new InternalServerErrorException('A matching answer is no longer available for grading.');
         }
+        if (question.type === 'click_boxes' &&
+          (question.items.length !== question.choices.length ||
+            new Set(correctAnswer).size !== correctAnswer.length)) {
+          throw new InternalServerErrorException('A click-the-boxes answer is no longer available for grading.');
+        }
         if (
           selectedAnswer !== null &&
           (!Array.isArray(selectedAnswer) ||
@@ -264,6 +280,11 @@ export class QuestionsService {
             ))
         ) {
           throw new BadRequestException('A matching answer is not one of the choices for this exam.');
+        }
+        if (question.type === 'click_boxes' && Array.isArray(selectedAnswer) &&
+          new Set(selectedAnswer.filter((index) => index !== null)).size !==
+            selectedAnswer.filter((index) => index !== null).length) {
+          throw new BadRequestException('Each click-the-boxes answer can only be used once.');
         }
         const selectedMatches = Array.isArray(selectedAnswer) ? selectedAnswer : null;
         const isCorrect = selectedMatches !== null &&
@@ -449,7 +470,7 @@ export class QuestionsService {
     if (!record.question_text?.trim() || !record.choices || !record.correct_answer) return null;
 
     const options = this.parseChoices(record.choices);
-    if (['match', 'drag_drop', 'image'].includes(record.question_type ?? '')) {
+    if (['match', 'drag_drop', 'click_boxes', 'image'].includes(record.question_type ?? '')) {
       return this.readStoredMatchingQuestion(record, options);
     }
     if (record.question_type && record.question_type !== 'single') return null;
@@ -573,13 +594,16 @@ export class QuestionsService {
     }
     const type = record.question_type === 'drag_drop'
       ? 'drag_drop'
-      : record.question_type === 'image'
-        ? 'image'
-        : 'match';
-    if (type === 'drag_drop' &&
+      : record.question_type === 'click_boxes'
+        ? 'click_boxes'
+        : record.question_type === 'image'
+          ? 'image'
+          : 'match';
+    if ((type === 'drag_drop' || type === 'click_boxes') &&
       new Set(correctIndexes).size !== correctIndexes.length) {
       return null;
     }
+    if (type === 'click_boxes' && options.length !== matchItems.length) return null;
     if (type === 'image' && (!record.imageUrl?.trim() || options.length > matchItems.length)) {
       return null;
     }
@@ -685,7 +709,7 @@ export class QuestionsService {
         throw new InternalServerErrorException('The saved exam attempt has invalid questions.');
       }
       const type = 'type' in item &&
-        (item.type === 'match' || item.type === 'drag_drop' || item.type === 'image')
+        (item.type === 'match' || item.type === 'drag_drop' || item.type === 'click_boxes' || item.type === 'image')
         ? item.type
         : 'single';
       if (type !== 'single') {
@@ -883,7 +907,7 @@ export class QuestionsService {
 
       const answer = question.type === 'single'
         ? question.options.indexOf(this.findCorrectOption(question.options, row.correct_answer) ?? '')
-        : ['match', 'drag_drop', 'image'].includes(row.question_type ?? '')
+        : ['match', 'drag_drop', 'click_boxes', 'image'].includes(row.question_type ?? '')
           ? this.parseMatchAnswer(row.correct_answer, question.items.length, question.choices.length)
           : parseDragDropAnswer(row.correct_answer, row.id)?.answer;
       if (answer === undefined || answer === -1 || (Array.isArray(answer) && answer.length === 0)) {

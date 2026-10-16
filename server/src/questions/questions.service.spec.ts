@@ -7,7 +7,7 @@ import { GradebookService } from '../gradebook/gradebook.service.js';
 function examQuestionBank(questionCount: number) {
   return Array.from({ length: questionCount / 50 }, (_, blockIndex) => {
     const firstId = blockIndex * 50 + 1;
-    const singleQuestions = Array.from({ length: 41 }, (_, index) => ({
+    const singleQuestions = Array.from({ length: 40 }, (_, index) => ({
       id: firstId + index,
       module: 'CCNA',
       topic: 'Routing',
@@ -21,11 +21,11 @@ function examQuestionBank(questionCount: number) {
       imageUrl: null,
     }));
     const matchQuestions = Array.from({ length: 5 }, (_, index) => ({
-      id: firstId + 41 + index,
+      id: firstId + 40 + index,
       module: 'CCNA',
       topic: 'Addressing',
       difficulty: 'Medium',
-      question_text: `Connect-the-dots question ${firstId + 41 + index}`,
+      question_text: `Connect-the-dots question ${firstId + 40 + index}`,
       choices: JSON.stringify(['Answer A', 'Answer B']),
       correct_answer: '[0,1]',
       explanation: 'Each item maps to its corresponding answer.',
@@ -34,11 +34,11 @@ function examQuestionBank(questionCount: number) {
       imageUrl: null,
     }));
     const dragDropQuestions = Array.from({ length: 3 }, (_, index) => ({
-      id: firstId + 46 + index,
+      id: firstId + 45 + index,
       module: 'CCNA',
       topic: 'Addressing',
       difficulty: 'Medium',
-      question_text: `Drag-and-drop question ${firstId + 46 + index}`,
+      question_text: `Drag-and-drop question ${firstId + 45 + index}`,
       choices: JSON.stringify(['Answer A', 'Answer B']),
       correct_answer: '[0,1]',
       explanation: 'Each item maps to its corresponding answer.',
@@ -46,6 +46,19 @@ function examQuestionBank(questionCount: number) {
       match_items: ['Item A', 'Item B'],
       imageUrl: null,
     }));
+    const clickBoxesQuestion = {
+      id: firstId + 48,
+      module: 'CCNA',
+      topic: 'Addressing',
+      difficulty: 'Medium',
+      question_text: `Click-the-boxes question ${firstId + 48}`,
+      choices: JSON.stringify(['Answer A', 'Answer B']),
+      correct_answer: '[0,1]',
+      explanation: 'Each answer is used once.',
+      question_type: 'click_boxes',
+      match_items: ['Item A', 'Item B'],
+      imageUrl: null,
+    };
     const imageQuestion = {
       id: firstId + 49,
       module: 'CCNA',
@@ -59,7 +72,7 @@ function examQuestionBank(questionCount: number) {
       match_items: ['Item A', 'Item B', 'Item C', 'Item D'],
       imageUrl: `questions/image-question-${firstId + 49}.png`,
     };
-    return [...singleQuestions, ...matchQuestions, ...dragDropQuestions, imageQuestion];
+    return [...singleQuestions, ...matchQuestions, ...dragDropQuestions, clickBoxesQuestion, imageQuestion];
   }).flat();
 }
 
@@ -155,6 +168,40 @@ describe('QuestionsService', () => {
     });
   });
 
+  it('stores click-the-boxes questions with one distinct answer for every item', async () => {
+    await service.create({
+      module: 'CCNA',
+      topic: 'Switching',
+      difficulty: 'Medium',
+      question_text: 'Click the matching answer boxes.',
+      question_type: 'click_boxes',
+      choices: ['Answer A', 'Answer B'],
+      match_items: ['Item A', 'Item B'],
+      match_answer: [1, 0],
+      explanation: 'Each answer is used once.',
+    });
+
+    expect(prismaMock.questions.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        question_type: 'click_boxes',
+        choices: JSON.stringify(['Answer A', 'Answer B']),
+        match_items: ['Item A', 'Item B'],
+        correct_answer: '[1,0]',
+      }),
+    });
+    expect(() => service.create({
+      module: 'CCNA',
+      topic: 'Switching',
+      difficulty: 'Medium',
+      question_text: 'Invalid click-box question.',
+      question_type: 'click_boxes',
+      choices: ['Answer A', 'Answer B'],
+      match_items: ['Item A', 'Item B'],
+      match_answer: [0, 0],
+      explanation: 'Each answer should be unique.',
+    })).toThrow('Click-the-boxes questions must use each answer choice exactly once.');
+  });
+
   it('stores image-based questions with their exhibit and grouped answer key', async () => {
     await service.create({
       module: 'CCNA',
@@ -213,6 +260,7 @@ describe('QuestionsService', () => {
     expect(attempt.questions).toHaveLength(50);
     expect(attempt.questions.filter((question) => question.type === 'match')).toHaveLength(5);
     expect(attempt.questions.filter((question) => question.type === 'drag_drop')).toHaveLength(3);
+    expect(attempt.questions.filter((question) => question.type === 'click_boxes')).toHaveLength(1);
     expect(attempt.questions.filter((question) => question.type === 'image')).toHaveLength(1);
     expect(attempt.questions.every((question) =>
       !('correct_answer' in question) && !('answer' in question),
@@ -349,7 +397,7 @@ describe('QuestionsService', () => {
     );
   });
 
-  it('submits single, connect-the-dots, drag-and-drop, and image answers together', async () => {
+  it('submits single, connect-the-dots, drag-and-drop, click-the-boxes, and image answers together', async () => {
     const questionSet = [
       {
         id: 1,
@@ -378,6 +426,15 @@ describe('QuestionsService', () => {
       },
       {
         id: 4,
+        prompt: 'Click the matching boxes.',
+        type: 'click_boxes',
+        items: ['Item A', 'Item B'],
+        choices: ['Choice A', 'Choice B'],
+        module: 'CCNA',
+        topic: 'Addressing',
+      },
+      {
+        id: 5,
         prompt: 'Classify each address.',
         type: 'image',
         imageUrl: 'questions/addressing.png',
@@ -428,6 +485,15 @@ describe('QuestionsService', () => {
       },
       {
         id: 4,
+        question_text: 'Click the matching boxes.',
+        choices: JSON.stringify(['Choice A', 'Choice B']),
+        correct_answer: '[0,1]',
+        explanation: 'Each answer is used once.',
+        question_type: 'click_boxes',
+        match_items: ['Item A', 'Item B'],
+      },
+      {
+        id: 5,
         question_text: 'Classify each address.',
         choices: JSON.stringify(['Network', 'Host', 'Broadcast']),
         correct_answer: '[0,1,0,2]',
@@ -442,15 +508,17 @@ describe('QuestionsService', () => {
       { questionId: 1, selectedAnswer: 'OSPF' },
       { questionId: 2, selectedMatches: [1, 0] },
       { questionId: 3, selectedMatches: [1, 0] },
-      { questionId: 4, selectedMatches: [2, 0, 2, 1] },
+      { questionId: 4, selectedMatches: [0, 1] },
+      { questionId: 5, selectedMatches: [2, 0, 2, 1] },
     ]);
 
-    expect(result.score).toBe(4);
-    expect(result.review).toHaveLength(4);
+    expect(result.score).toBe(5);
+    expect(result.review).toHaveLength(5);
     expect(result.review.map((question) => question.type ?? 'single')).toEqual([
       'single',
       'match',
       'drag_drop',
+      'click_boxes',
       'image',
     ]);
     expect(result.review.every((question) => question.isCorrect)).toBe(true);
@@ -471,7 +539,7 @@ describe('QuestionsService', () => {
     [50, 'short'],
     [100, 'medium'],
     [150, 'long'],
-  ] as const)('includes five connect-the-dots, three drag-and-drop, and one image question per 50-question block in the %s exam', async (count, examKey) => {
+  ] as const)('includes five connect-the-dots, three drag-and-drop, one click-the-boxes, and one image question per 50-question block in the %s exam', async (count, examKey) => {
     prismaMock.questions.findMany.mockResolvedValue(examQuestionBank(count));
 
     const attempt = await service.startExam(examKey, 7);
@@ -481,7 +549,9 @@ describe('QuestionsService', () => {
       const block = attempt.questions.slice(offset, offset + 50);
       expect(block.filter((question) => question.type === 'match')).toHaveLength(5);
       expect(block.filter((question) => question.type === 'drag_drop')).toHaveLength(3);
+      expect(block.filter((question) => question.type === 'click_boxes')).toHaveLength(1);
       expect(block.filter((question) => question.type === 'image')).toHaveLength(1);
+      expect(block.filter((question) => question.type === 'single')).toHaveLength(40);
     }
   });
 

@@ -38,8 +38,8 @@ export class CreateQuestionDto {
     choices: string[];
 
     @IsOptional()
-    @IsIn(['single', 'match', 'drag_drop', 'image'])
-    question_type?: 'single' | 'match' | 'drag_drop' | 'image';
+    @IsIn(['single', 'match', 'drag_drop', 'click_boxes', 'image'])
+    question_type?: 'single' | 'match' | 'drag_drop' | 'click_boxes' | 'image';
 
     @ValidateIf((question) => question.question_type !== undefined && question.question_type !== 'single')
     @IsArray()
