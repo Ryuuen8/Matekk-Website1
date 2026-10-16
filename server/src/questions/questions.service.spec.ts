@@ -344,6 +344,52 @@ describe('QuestionsService', () => {
     });
   });
 
+  it('grades legacy drag-and-drop answers whose choices are stored in the answer text', async () => {
+    prismaMock.examAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-id',
+      userId: 7,
+      examKey: 'short',
+      questionSet: [{
+        id: 1,
+        prompt: 'Match each device to its role.',
+        type: 'match',
+        items: ['R1', 'SW1'],
+        choices: ['Switch', 'Router'],
+        module: 'CCNA',
+        topic: 'Network Devices',
+      }],
+      durationSeconds: 2700,
+      deadline: new Date(Date.now() + 2700000),
+      score: null,
+      review: null,
+      submittedAt: null,
+    });
+    prismaMock.questions.findMany.mockResolvedValue([{
+      id: 1,
+      module: 'CCNA',
+      topic: 'Network Devices',
+      difficulty: 'Easy',
+      question_text: 'Match each device to its role.',
+      choices: '',
+      correct_answer: 'Router:\n+ R1\nSwitch:\n+ SW1',
+      explanation: 'Routers route traffic; switches connect local devices.',
+      question_type: 'single',
+      match_items: null,
+    }]);
+
+    const result = await service.submitExam('short', 'attempt-id', 7, [
+      { questionId: 1, selectedMatches: [1, 0] },
+    ]);
+
+    expect(result.score).toBe(1);
+    expect(result.review[0]).toMatchObject({
+      type: 'match',
+      selectedAnswer: [1, 0],
+      correctAnswer: [1, 0],
+      isCorrect: true,
+    });
+  });
+
   it('rejects an exam attempt owned by a different student', async () => {
     prismaMock.examAttempt.findUnique.mockResolvedValue({
       id: 'attempt-id',

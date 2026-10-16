@@ -214,12 +214,29 @@ export class QuestionsService {
       }
 
       if (question.type === 'match') {
-        const originalChoices = this.parseChoices(source.choices);
-        if (!originalChoices) {
-          throw new InternalServerErrorException('A matching question has invalid choices.');
+        const isLegacyDragDrop = !source.choices?.trim() &&
+          (!source.question_type || source.question_type === 'single');
+        let correctAnswer: number[];
+        if (isLegacyDragDrop) {
+          const dragDrop = parseDragDropAnswer(source.correct_answer, source.id);
+          if (!dragDrop) {
+            throw new InternalServerErrorException('A matching answer is no longer available for grading.');
+          }
+          correctAnswer = dragDrop.answer.map((choiceIndex) =>
+            question.choices.indexOf(dragDrop.choices[choiceIndex]),
+          );
+        } else {
+          const originalChoices = this.parseChoices(source.choices);
+          if (!originalChoices) {
+            throw new InternalServerErrorException('A matching question has invalid choices.');
+          }
+          const correctIndexes = this.parseMatchAnswer(
+            source.correct_answer,
+            question.items.length,
+            originalChoices.length,
+          );
+          correctAnswer = correctIndexes.map((index) => question.choices.indexOf(originalChoices[index]));
         }
-        const correctIndexes = this.parseMatchAnswer(source.correct_answer, question.items.length, originalChoices.length);
-        const correctAnswer = correctIndexes.map((index) => question.choices.indexOf(originalChoices[index]));
         if (correctAnswer.some((index) => index < 0)) {
           throw new InternalServerErrorException('A matching answer is no longer available for grading.');
         }
