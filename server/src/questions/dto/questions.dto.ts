@@ -38,10 +38,10 @@ export class CreateQuestionDto {
     choices: string[];
 
     @IsOptional()
-    @IsIn(['single', 'match'])
-    question_type?: 'single' | 'match';
+    @IsIn(['single', 'match', 'drag_drop', 'image'])
+    question_type?: 'single' | 'match' | 'drag_drop' | 'image';
 
-    @ValidateIf((question) => question.question_type === 'match')
+    @ValidateIf((question) => question.question_type !== undefined && question.question_type !== 'single')
     @IsArray()
     @ArrayMinSize(2)
     @ArrayMaxSize(8)
@@ -49,7 +49,7 @@ export class CreateQuestionDto {
     @Length(1, 500, { each: true })
     match_items?: string[];
 
-    @ValidateIf((question) => question.question_type === 'match')
+    @ValidateIf((question) => question.question_type !== undefined && question.question_type !== 'single')
     @IsArray()
     @ArrayMinSize(2)
     @ArrayMaxSize(8)
@@ -57,10 +57,15 @@ export class CreateQuestionDto {
     @Min(0, { each: true })
     match_answer?: number[];
 
-    @ValidateIf((question) => question.question_type !== 'match')
+    @ValidateIf((question) => question.question_type === undefined || question.question_type === 'single')
     @IsString()
     @Length(1, 500)
     correct_answer?: string;
+
+    @IsOptional()
+    @IsString()
+    @Length(1, 1000)
+    imageUrl?: string;
 
     @IsString()
     @MaxLength(5000)

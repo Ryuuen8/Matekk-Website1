@@ -5,32 +5,62 @@ import { StorageService } from '../storage/storage.service.js';
 import { GradebookService } from '../gradebook/gradebook.service.js';
 
 function examQuestionBank(questionCount: number) {
-  const matchingCount = questionCount / 10;
-  const singleQuestions = Array.from({ length: questionCount - matchingCount }, (_, index) => ({
-    id: index + 1,
-    module: 'CCNA',
-    topic: 'Routing',
-    difficulty: 'Easy',
-    question_text: `Question ${index + 1}`,
-    choices: JSON.stringify(['Correct', 'Wrong A', 'Wrong B']),
-    correct_answer: '0',
-    explanation: 'Because it is correct.',
-    question_type: 'single',
-    match_items: null,
-  }));
-  const matchQuestions = Array.from({ length: matchingCount }, (_, index) => ({
-    id: questionCount - matchingCount + index + 1,
-    module: 'CCNA',
-    topic: 'Addressing',
-    difficulty: 'Medium',
-    question_text: `Match question ${index + 1}`,
-    choices: JSON.stringify(['Answer A', 'Answer B']),
-    correct_answer: '[0,1]',
-    explanation: 'Each item maps to its corresponding answer.',
-    question_type: 'match',
-    match_items: ['Item A', 'Item B'],
-  }));
-  return [...singleQuestions, ...matchQuestions];
+  return Array.from({ length: questionCount / 50 }, (_, blockIndex) => {
+    const firstId = blockIndex * 50 + 1;
+    const singleQuestions = Array.from({ length: 41 }, (_, index) => ({
+      id: firstId + index,
+      module: 'CCNA',
+      topic: 'Routing',
+      difficulty: 'Easy',
+      question_text: `Question ${firstId + index}`,
+      choices: JSON.stringify(['Correct', 'Wrong A', 'Wrong B']),
+      correct_answer: '0',
+      explanation: 'Because it is correct.',
+      question_type: 'single',
+      match_items: null,
+      imageUrl: null,
+    }));
+    const matchQuestions = Array.from({ length: 5 }, (_, index) => ({
+      id: firstId + 41 + index,
+      module: 'CCNA',
+      topic: 'Addressing',
+      difficulty: 'Medium',
+      question_text: `Connect-the-dots question ${firstId + 41 + index}`,
+      choices: JSON.stringify(['Answer A', 'Answer B']),
+      correct_answer: '[0,1]',
+      explanation: 'Each item maps to its corresponding answer.',
+      question_type: 'match',
+      match_items: ['Item A', 'Item B'],
+      imageUrl: null,
+    }));
+    const dragDropQuestions = Array.from({ length: 3 }, (_, index) => ({
+      id: firstId + 46 + index,
+      module: 'CCNA',
+      topic: 'Addressing',
+      difficulty: 'Medium',
+      question_text: `Drag-and-drop question ${firstId + 46 + index}`,
+      choices: JSON.stringify(['Answer A', 'Answer B']),
+      correct_answer: '[0,1]',
+      explanation: 'Each item maps to its corresponding answer.',
+      question_type: 'drag_drop',
+      match_items: ['Item A', 'Item B'],
+      imageUrl: null,
+    }));
+    const imageQuestion = {
+      id: firstId + 49,
+      module: 'CCNA',
+      topic: 'Addressing',
+      difficulty: 'Medium',
+      question_text: `Image question ${firstId + 49}`,
+      choices: JSON.stringify(['Network', 'Host', 'Broadcast']),
+      correct_answer: '[0,1,0,2]',
+      explanation: 'Classify each item using the image.',
+      question_type: 'image',
+      match_items: ['Item A', 'Item B', 'Item C', 'Item D'],
+      imageUrl: `questions/image-question-${firstId + 49}.png`,
+    };
+    return [...singleQuestions, ...matchQuestions, ...dragDropQuestions, imageQuestion];
+  }).flat();
 }
 
 describe('QuestionsService', () => {
@@ -125,6 +155,45 @@ describe('QuestionsService', () => {
     });
   });
 
+  it('stores image-based questions with their exhibit and grouped answer key', async () => {
+    await service.create({
+      module: 'CCNA',
+      topic: 'Addressing',
+      difficulty: 'Easy',
+      question_text: 'Use the exhibit to classify each address.',
+      question_type: 'image',
+      imageUrl: 'questions/addressing.png',
+      choices: ['Network', 'Host', 'Broadcast'],
+      match_items: ['Address A', 'Address B', 'Address C', 'Address D'],
+      match_answer: [0, 1, 0, 2],
+      explanation: 'Classify each address using its network portion.',
+    });
+
+    expect(prismaMock.questions.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        question_type: 'image',
+        imageUrl: 'questions/addressing.png',
+        match_items: ['Address A', 'Address B', 'Address C', 'Address D'],
+        choices: JSON.stringify(['Network', 'Host', 'Broadcast']),
+        correct_answer: '[0,1,0,2]',
+      }),
+    });
+  });
+
+  it('requires image questions to include an exhibit image', () => {
+    expect(() => service.create({
+      module: 'CCNA',
+      topic: 'Addressing',
+      difficulty: 'Easy',
+      question_text: 'Use the exhibit to classify each address.',
+      question_type: 'image',
+      choices: ['Network', 'Host'],
+      match_items: ['Address A', 'Address B'],
+      match_answer: [0, 1],
+      explanation: 'Classify each address.',
+    })).toThrow('An image question must include an image URL.');
+  });
+
   it('accepts zero-based numeric answer keys when building an exam', async () => {
     const databaseQuestions = examQuestionBank(50);
     prismaMock.questions.findMany.mockResolvedValue(databaseQuestions);
@@ -143,6 +212,8 @@ describe('QuestionsService', () => {
 
     expect(attempt.questions).toHaveLength(50);
     expect(attempt.questions.filter((question) => question.type === 'match')).toHaveLength(5);
+    expect(attempt.questions.filter((question) => question.type === 'drag_drop')).toHaveLength(3);
+    expect(attempt.questions.filter((question) => question.type === 'image')).toHaveLength(1);
     expect(attempt.questions.every((question) =>
       !('correct_answer' in question) && !('answer' in question),
     )).toBe(true);
@@ -151,10 +222,15 @@ describe('QuestionsService', () => {
       prompt: expect.any(String),
       options: expect.arrayContaining(['Correct', 'Wrong A', 'Wrong B']),
     });
-    expect(attempt.questions.find((question) => question.type === 'match')).toMatchObject({
-      type: 'match',
+    expect(attempt.questions.find((question) => question.type === 'drag_drop')).toMatchObject({
+      type: 'drag_drop',
       items: ['Item A', 'Item B'],
       choices: expect.arrayContaining(['Answer A', 'Answer B']),
+    });
+    expect(attempt.questions.find((question) => question.type === 'image')).toMatchObject({
+      type: 'image',
+      groupSizes: expect.arrayContaining([2, 1, 1]),
+      imageUrl: expect.stringContaining('image-question'),
     });
     expect(prismaMock.examAttempt.create).toHaveBeenCalledOnce();
     expect(prismaMock.examAttempt.create.mock.calls[0][0].data.userId).toBe(7);
@@ -162,7 +238,7 @@ describe('QuestionsService', () => {
 
   it('returns shuffled group sizes for grouped matching questions without exposing their answer keys', async () => {
     const databaseQuestions = examQuestionBank(50).map((question) =>
-      question.id === 46
+      question.id === 50
         ? {
             ...question,
             choices: JSON.stringify(['Network', 'Host', 'Broadcast']),
@@ -174,13 +250,13 @@ describe('QuestionsService', () => {
     prismaMock.questions.findMany.mockResolvedValue(databaseQuestions);
 
     const attempt = await service.startExam('short', 7);
-    const groupedQuestion = attempt.questions.find((question) => question.id === 46);
+    const groupedQuestion = attempt.questions.find((question) => question.id === 50);
 
     expect(groupedQuestion).toMatchObject({
-      type: 'match',
+      type: 'image',
       groupSizes: expect.any(Array),
     });
-    if (groupedQuestion?.type !== 'match') throw new Error('Expected a matching question.');
+    if (groupedQuestion?.type !== 'image') throw new Error('Expected an image question.');
     expect(groupedQuestion.groupSizes).toHaveLength(groupedQuestion.choices.length);
     expect(groupedQuestion.groupSizes?.reduce((total, size) => total + size, 0)).toBe(4);
     expect(Object.fromEntries(groupedQuestion.choices.map((choice, index) => [
@@ -203,7 +279,9 @@ describe('QuestionsService', () => {
     const attempt = await service.startExam('short', 7);
 
     expect(attempt.questions.find((question) => question.id === 1)?.imageUrl).toBe(signedUrl);
-    expect(storageMock.createSignedQuestionImageUrls).toHaveBeenCalledWith([imagePath]);
+    expect(storageMock.createSignedQuestionImageUrls).toHaveBeenCalledWith(
+      expect.arrayContaining([imagePath, 'questions/image-question-50.png']),
+    );
     expect(prismaMock.examAttempt.create.mock.calls[0][0].data.questionSet)
       .toEqual(expect.arrayContaining([expect.objectContaining({ id: 1, imageUrl: imagePath })]));
   });
@@ -271,6 +349,115 @@ describe('QuestionsService', () => {
     );
   });
 
+  it('submits single, connect-the-dots, drag-and-drop, and image answers together', async () => {
+    const questionSet = [
+      {
+        id: 1,
+        prompt: 'Choose the protocol.',
+        options: ['OSPF', 'EIGRP'],
+        module: 'CCNA',
+        topic: 'Routing',
+      },
+      {
+        id: 2,
+        prompt: 'Connect each item.',
+        type: 'match',
+        items: ['Blue', 'Red'],
+        choices: ['Stop sign', 'Sky'],
+        module: 'CCNA',
+        topic: 'Addressing',
+      },
+      {
+        id: 3,
+        prompt: 'Place each command.',
+        type: 'drag_drop',
+        items: ['First', 'Second'],
+        choices: ['configure terminal', 'show ip route'],
+        module: 'CCNA',
+        topic: 'Switching',
+      },
+      {
+        id: 4,
+        prompt: 'Classify each address.',
+        type: 'image',
+        imageUrl: 'questions/addressing.png',
+        items: ['Address A', 'Address B', 'Address C', 'Address D'],
+        choices: ['Host', 'Broadcast', 'Network'],
+        groupSizes: [1, 1, 2],
+        module: 'CCNA',
+        topic: 'Addressing',
+      },
+    ];
+    prismaMock.examAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-id',
+      userId: 7,
+      examKey: 'short',
+      questionSet,
+      durationSeconds: 2700,
+      deadline: new Date(Date.now() + 2700000),
+      score: null,
+      review: null,
+      submittedAt: null,
+    });
+    prismaMock.questions.findMany.mockResolvedValue([
+      {
+        id: 1,
+        question_text: 'Choose the protocol.',
+        choices: JSON.stringify(['EIGRP', 'OSPF']),
+        correct_answer: 'OSPF',
+        explanation: 'OSPF is correct.',
+        question_type: 'single',
+      },
+      {
+        id: 2,
+        question_text: 'Connect each item.',
+        choices: JSON.stringify(['Sky', 'Stop sign']),
+        correct_answer: '[0,1]',
+        explanation: 'Match by association.',
+        question_type: 'match',
+        match_items: ['Blue', 'Red'],
+      },
+      {
+        id: 3,
+        question_text: 'Place each command.',
+        choices: JSON.stringify(['show ip route', 'configure terminal']),
+        correct_answer: '[0,1]',
+        explanation: 'Use the correct order.',
+        question_type: 'drag_drop',
+        match_items: ['First', 'Second'],
+      },
+      {
+        id: 4,
+        question_text: 'Classify each address.',
+        choices: JSON.stringify(['Network', 'Host', 'Broadcast']),
+        correct_answer: '[0,1,0,2]',
+        explanation: 'Classify based on the prefix.',
+        question_type: 'image',
+        match_items: ['Address A', 'Address B', 'Address C', 'Address D'],
+        imageUrl: 'questions/addressing.png',
+      },
+    ]);
+
+    const result = await service.submitExam('short', 'attempt-id', 7, [
+      { questionId: 1, selectedAnswer: 'OSPF' },
+      { questionId: 2, selectedMatches: [1, 0] },
+      { questionId: 3, selectedMatches: [1, 0] },
+      { questionId: 4, selectedMatches: [2, 0, 2, 1] },
+    ]);
+
+    expect(result.score).toBe(4);
+    expect(result.review).toHaveLength(4);
+    expect(result.review.map((question) => question.type ?? 'single')).toEqual([
+      'single',
+      'match',
+      'drag_drop',
+      'image',
+    ]);
+    expect(result.review.every((question) => question.isCorrect)).toBe(true);
+    expect(prismaMock.examAttempt.updateMany).toHaveBeenCalledOnce();
+    expect(gradebookMock.recordAssessment).toHaveBeenCalledOnce();
+  });
+
   it('uses only the Questions table to create an exam', async () => {
     const databaseQuestions = examQuestionBank(50);
     prismaMock.questions.findMany.mockResolvedValue(databaseQuestions);
@@ -284,16 +471,17 @@ describe('QuestionsService', () => {
     [50, 'short'],
     [100, 'medium'],
     [150, 'long'],
-  ] as const)('includes exactly five matching questions per 50-question block in the %s exam', async (count, examKey) => {
+  ] as const)('includes five connect-the-dots, three drag-and-drop, and one image question per 50-question block in the %s exam', async (count, examKey) => {
     prismaMock.questions.findMany.mockResolvedValue(examQuestionBank(count));
 
     const attempt = await service.startExam(examKey, 7);
 
     expect(attempt.questions).toHaveLength(count);
     for (let offset = 0; offset < count; offset += 50) {
-      expect(
-        attempt.questions.slice(offset, offset + 50).filter((question) => question.type === 'match'),
-      ).toHaveLength(5);
+      const block = attempt.questions.slice(offset, offset + 50);
+      expect(block.filter((question) => question.type === 'match')).toHaveLength(5);
+      expect(block.filter((question) => question.type === 'drag_drop')).toHaveLength(3);
+      expect(block.filter((question) => question.type === 'image')).toHaveLength(1);
     }
   });
 
@@ -301,7 +489,7 @@ describe('QuestionsService', () => {
     const questionSet = [{
       id: 1,
       prompt: 'Match each item.',
-      type: 'match',
+      type: 'drag_drop',
       items: ['Item A', 'Item B'],
       choices: ['Answer B', 'Answer A'],
       module: 'CCNA',
@@ -318,6 +506,7 @@ describe('QuestionsService', () => {
       review: null,
       submittedAt: null,
     });
+
     prismaMock.questions.findMany.mockResolvedValue([{
       id: 1,
       module: 'CCNA',
@@ -337,9 +526,58 @@ describe('QuestionsService', () => {
 
     expect(result.score).toBe(1);
     expect(result.review[0]).toMatchObject({
-      type: 'match',
+      type: 'drag_drop',
       selectedAnswer: [1, 0],
       correctAnswer: [1, 0],
+      isCorrect: true,
+    });
+  });
+
+  it('grades image question number-entry answers using the saved shuffled choices', async () => {
+    prismaMock.examAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-id',
+      userId: 7,
+      examKey: 'short',
+      questionSet: [{
+        id: 1,
+        prompt: 'Use the exhibit to classify each address.',
+        type: 'image',
+        imageUrl: 'questions/addressing.png',
+        items: ['Address A', 'Address B', 'Address C', 'Address D'],
+        choices: ['Host', 'Broadcast', 'Network'],
+        groupSizes: [1, 1, 2],
+        module: 'CCNA',
+        topic: 'Addressing',
+      }],
+      durationSeconds: 2700,
+      deadline: new Date(Date.now() + 2700000),
+      score: null,
+      review: null,
+      submittedAt: null,
+    });
+    prismaMock.questions.findMany.mockResolvedValue([{
+      id: 1,
+      module: 'CCNA',
+      topic: 'Addressing',
+      difficulty: 'Easy',
+      question_text: 'Use the exhibit to classify each address.',
+      choices: JSON.stringify(['Network', 'Host', 'Broadcast']),
+      correct_answer: '[0,1,0,2]',
+      explanation: 'Classify each address using its network portion.',
+      question_type: 'image',
+      match_items: ['Address A', 'Address B', 'Address C', 'Address D'],
+      imageUrl: 'questions/addressing.png',
+    }]);
+
+    const result = await service.submitExam('short', 'attempt-id', 7, [
+      { questionId: 1, selectedMatches: [2, 0, 2, 1] },
+    ]);
+
+    expect(result.score).toBe(1);
+    expect(result.review[0]).toMatchObject({
+      type: 'image',
+      selectedAnswer: [2, 0, 2, 1],
+      correctAnswer: [2, 0, 2, 1],
       isCorrect: true,
     });
   });
@@ -543,6 +781,18 @@ describe('QuestionsService', () => {
         match_items: null,
         imageUrl: null,
       },
+      {
+        id: 5,
+        module: 'CCNA',
+        topic: 'Switching',
+        question_text: 'Place each command in order.',
+        choices: JSON.stringify(['show ip route', 'configure terminal']),
+        correct_answer: '[0,1]',
+        explanation: '',
+        question_type: 'drag_drop',
+        match_items: ['First', 'Second'],
+        imageUrl: null,
+      },
     ]);
 
     const result = await service.findUsableBank();
@@ -583,10 +833,25 @@ describe('QuestionsService', () => {
           type: 'match',
           items: ['EIGRP', 'STP', 'OSPF', 'VLAN'],
           choices: ['Routers', 'Switches'],
+          groupSizes: [2, 2],
           module: 'CCNA',
           topic: 'Switching',
           bankId: 3,
           answer: [0, 1, 0, 1],
+          explanation: '',
+          source: 'question-bank',
+        },
+        {
+          id: 5,
+          prompt: 'Place each command in order.',
+          imageUrl: null,
+          type: 'drag_drop',
+          items: ['First', 'Second'],
+          choices: ['show ip route', 'configure terminal'],
+          module: 'CCNA',
+          topic: 'Switching',
+          bankId: 5,
+          answer: [0, 1],
           explanation: '',
           source: 'question-bank',
         },

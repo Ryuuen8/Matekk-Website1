@@ -29,12 +29,19 @@ type ExamQuestionBase = {
 };
 type SingleExamQuestion = ExamQuestionBase & { type: 'single' };
 type MatchExamQuestion = Omit<ExamQuestionBase, 'options'> & {
-  type: 'match';
+  type: 'match' | 'drag_drop' | 'image';
   items: string[];
   choices: string[];
   groupSizes?: number[];
 };
 type ExamQuestion = SingleExamQuestion | MatchExamQuestion;
+
+const QUESTIONS_PER_BLOCK = {
+  match: 5,
+  dragDrop: 3,
+  image: 1,
+  single: 41,
+} as const;
 
 @Injectable()
 export class QuestionsService {
@@ -47,7 +54,7 @@ export class QuestionsService {
   create(data: CreateQuestionDto) {
     const questionType = data.question_type ?? 'single';
     let correctAnswer: string;
-    if (questionType === 'match') {
+    if (questionType !== 'single') {
       if (
         !data.match_items ||
         !data.match_answer ||
@@ -60,6 +67,16 @@ export class QuestionsService {
         )
       ) {
         throw new BadRequestException('Each matching item must have a valid answer choice.');
+      }
+      if (questionType === 'drag_drop' &&
+        new Set(data.match_answer).size !== data.match_answer.length) {
+        throw new BadRequestException('Each drag-and-drop item must use a different answer choice.');
+      }
+      if (questionType === 'image' && !data.imageUrl?.trim()) {
+        throw new BadRequestException('An image question must include an image URL.');
+      }
+      if (questionType === 'image' && data.choices.length > data.match_items.length) {
+        throw new BadRequestException('An image question must have at least as many items as answer groups.');
       }
       correctAnswer = JSON.stringify(data.match_answer);
     } else if (!data.correct_answer || !data.choices.includes(data.correct_answer)) {
@@ -78,7 +95,8 @@ export class QuestionsService {
         correct_answer: correctAnswer,
         explanation: data.explanation,
         question_type: questionType,
-        ...(questionType === 'match' ? { match_items: data.match_items } : {}),
+        ...(questionType !== 'single' ? { match_items: data.match_items } : {}),
+        ...(data.imageUrl ? { imageUrl: data.imageUrl } : {}),
       },
     });
   }
@@ -111,24 +129,38 @@ export class QuestionsService {
 
     // Persist each randomized set so a resumed attempt keeps the same questions and option order.
     const questionBlocks = config.questionCount / 50;
-    const matchingCount = questionBlocks * 5;
+    const requiredDragDrop = questionBlocks * QUESTIONS_PER_BLOCK.dragDrop;
+    const requiredImages = questionBlocks * QUESTIONS_PER_BLOCK.image;
+    const requiredMatches = questionBlocks * QUESTIONS_PER_BLOCK.match;
     const matchingQuestions = usableQuestions.filter((question) => question.type === 'match');
+    const dragDropQuestions = usableQuestions.filter((question) => question.type === 'drag_drop');
+    const imageQuestions = usableQuestions.filter((question) => question.type === 'image');
     const singleQuestions = usableQuestions.filter((question) => question.type === 'single');
-    if (matchingQuestions.length < matchingCount || singleQuestions.length < config.questionCount - matchingCount) {
+    const requiredSingles = questionBlocks * QUESTIONS_PER_BLOCK.single;
+    if (
+      dragDropQuestions.length < requiredDragDrop ||
+      imageQuestions.length < requiredImages ||
+      matchingQuestions.length < requiredMatches ||
+      singleQuestions.length < requiredSingles
+    ) {
       throw new BadRequestException(
-        `This exam requires ${matchingCount} matching questions and ${config.questionCount - matchingCount} multiple-choice questions. ` +
-        `The Questions table has ${matchingQuestions.length} valid matching questions and ${singleQuestions.length} valid multiple-choice questions.`,
+        `This exam requires ${requiredMatches} connect-the-dots, ${requiredDragDrop} drag-and-drop, ${requiredImages} image-based, and ${requiredSingles} multiple-choice questions. ` +
+        `The Questions table has ${matchingQuestions.length} valid connect-the-dots, ${dragDropQuestions.length} valid drag-and-drop, ${imageQuestions.length} valid image-based, and ${singleQuestions.length} valid multiple-choice questions.`,
       );
     }
 
     const randomizedMatches = this.shuffle(matchingQuestions);
+    const randomizedDragDrop = this.shuffle(dragDropQuestions);
+    const randomizedImages = this.shuffle(imageQuestions);
     const randomizedSingles = this.shuffle(singleQuestions);
     const selectedQuestions = Array.from({ length: questionBlocks }, (_, blockIndex) => [
-      ...randomizedMatches.slice(blockIndex * 5, (blockIndex + 1) * 5),
-      ...randomizedSingles.slice(blockIndex * 45, (blockIndex + 1) * 45),
+      ...randomizedMatches.slice(blockIndex * QUESTIONS_PER_BLOCK.match, (blockIndex + 1) * QUESTIONS_PER_BLOCK.match),
+      ...randomizedDragDrop.slice(blockIndex * QUESTIONS_PER_BLOCK.dragDrop, (blockIndex + 1) * QUESTIONS_PER_BLOCK.dragDrop),
+      ...randomizedImages.slice(blockIndex * QUESTIONS_PER_BLOCK.image, (blockIndex + 1) * QUESTIONS_PER_BLOCK.image),
+      ...randomizedSingles.slice(blockIndex * QUESTIONS_PER_BLOCK.single, (blockIndex + 1) * QUESTIONS_PER_BLOCK.single),
     ]).flatMap((block) => this.shuffle(block));
     const questionSet = selectedQuestions.map((question) => {
-      if (question.type !== 'match') {
+      if (question.type === 'single') {
         return { ...question, options: this.shuffle(question.options) };
       }
       const choiceOrder = this.shuffle(question.choices.map((_, index) => index));
@@ -213,30 +245,12 @@ export class QuestionsService {
         throw new InternalServerErrorException('A question in this exam is no longer available for grading.');
       }
 
-      if (question.type === 'match') {
-        const isLegacyDragDrop = !source.choices?.trim() &&
-          (!source.question_type || source.question_type === 'single');
-        let correctAnswer: number[];
-        if (isLegacyDragDrop) {
-          const dragDrop = parseDragDropAnswer(source.correct_answer, source.id);
-          if (!dragDrop) {
-            throw new InternalServerErrorException('A matching answer is no longer available for grading.');
-          }
-          correctAnswer = dragDrop.answer.map((choiceIndex) =>
-            question.choices.indexOf(dragDrop.choices[choiceIndex]),
-          );
-        } else {
-          const originalChoices = this.parseChoices(source.choices);
-          if (!originalChoices) {
-            throw new InternalServerErrorException('A matching question has invalid choices.');
-          }
-          const correctIndexes = this.parseMatchAnswer(
-            source.correct_answer,
-            question.items.length,
-            originalChoices.length,
-          );
-          correctAnswer = correctIndexes.map((index) => question.choices.indexOf(originalChoices[index]));
-        }
+      if (question.type !== 'single') {
+        const correctAnswer = question.type === 'drag_drop'
+          ? this.gradeDragDropAnswer(question, source)
+          : question.type === 'image'
+            ? this.gradeImageAnswer(question, source)
+            : this.gradeStoredMatchingAnswer(question, source);
         if (correctAnswer.some((index) => index < 0)) {
           throw new InternalServerErrorException('A matching answer is no longer available for grading.');
         }
@@ -315,6 +329,68 @@ export class QuestionsService {
     );
   }
 
+  private gradeDragDropAnswer(
+    question: MatchExamQuestion,
+    source: {
+      id: number;
+      choices: string | null;
+      correct_answer: string | null;
+      question_type?: string | null;
+    },
+  ): number[] {
+    if (!source.choices?.trim() &&
+      (!source.question_type || source.question_type === 'single')) {
+      const dragDrop = parseDragDropAnswer(source.correct_answer, source.id);
+      if (!dragDrop) {
+        throw new InternalServerErrorException('A matching answer is no longer available for grading.');
+      }
+      return dragDrop.answer.map((choiceIndex) =>
+        question.choices.indexOf(dragDrop.choices[choiceIndex]),
+      );
+    }
+    return this.gradeStoredMatchingAnswer(question, source);
+  }
+
+  private gradeImageAnswer(
+    question: MatchExamQuestion,
+    source: {
+      id: number;
+      choices: string | null;
+      correct_answer: string | null;
+      question_type?: string | null;
+      imageUrl?: string | null;
+    },
+  ): number[] {
+    if (!source.imageUrl?.trim()) {
+      throw new InternalServerErrorException('An image question is no longer available.');
+    }
+    return this.gradeStoredMatchingAnswer(question, source);
+  }
+
+  private gradeStoredMatchingAnswer(
+    question: MatchExamQuestion,
+    source: {
+      id: number;
+      choices: string | null;
+      correct_answer: string | null;
+      question_type?: string | null;
+    },
+  ): number[] {
+    if (!source.choices?.trim()) {
+      return this.gradeDragDropAnswer(question, source);
+    }
+    const originalChoices = this.parseChoices(source.choices);
+    if (!originalChoices) {
+      throw new InternalServerErrorException('A matching question has invalid choices.');
+    }
+    const correctIndexes = this.parseMatchAnswer(
+      source.correct_answer ?? '',
+      question.items.length,
+      originalChoices.length,
+    );
+    return correctIndexes.map((index) => question.choices.indexOf(originalChoices[index]));
+  }
+
   private async recordGradebookResult(
     attempt: {
       id: string;
@@ -364,65 +440,17 @@ export class QuestionsService {
       !record.choices?.trim() &&
       (!record.question_type || record.question_type === 'single')
     ) {
-      const dragDrop = parseDragDropAnswer(record.correct_answer, record.id);
-      return dragDrop
-        ? {
-          id: record.id,
-          prompt: record.question_text.trim(),
-          imageUrl: record.imageUrl ?? null,
-          type: 'match',
-          items: dragDrop.items,
-          choices: dragDrop.choices,
-          module: record.module,
-          topic: record.topic,
-        }
-        : null;
+      return record.imageUrl?.trim()
+        ? this.readImageQuestion(record)
+        : this.readDragDropQuestion(record);
     }
 
     // Ignore malformed bank rows so only questions that can be safely rendered and graded are selected.
     if (!record.question_text?.trim() || !record.choices || !record.correct_answer) return null;
 
     const options = this.parseChoices(record.choices);
-    if (record.question_type === 'match') {
-      const items = record.match_items;
-      const matchItems = Array.isArray(items)
-        ? items.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-        : [];
-      if (
-        !options ||
-        options.length < 2 ||
-        options.length > 8 ||
-        !options.every((option) => option.trim().length > 0) ||
-        new Set(options).size !== options.length ||
-        !Array.isArray(items) ||
-        matchItems.length !== items.length ||
-        matchItems.length < 2 ||
-        matchItems.length > 8 ||
-        new Set(matchItems).size !== matchItems.length
-      ) {
-        return null;
-      }
-      let correctIndexes: number[];
-      try {
-        correctIndexes = this.parseMatchAnswer(record.correct_answer, matchItems.length, options.length);
-      } catch {
-        return null;
-      }
-      const groupedMatch = options.length <= matchItems.length &&
-        (options.length !== matchItems.length || new Set(correctIndexes).size !== correctIndexes.length);
-      return {
-        id: record.id,
-        prompt: record.question_text.trim(),
-        imageUrl: record.imageUrl ?? null,
-        type: 'match',
-        items: matchItems,
-        choices: options,
-        ...(groupedMatch
-          ? { groupSizes: options.map((_, index) => correctIndexes.filter((answer) => answer === index).length) }
-          : {}),
-        module: record.module,
-        topic: record.topic,
-      };
+    if (['match', 'drag_drop', 'image'].includes(record.question_type ?? '')) {
+      return this.readStoredMatchingQuestion(record, options);
     }
     if (record.question_type && record.question_type !== 'single') return null;
     if (
@@ -441,6 +469,134 @@ export class QuestionsService {
       imageUrl: record.imageUrl ?? null,
       type: 'single',
       options,
+      module: record.module,
+      topic: record.topic,
+    };
+  }
+
+  private readDragDropQuestion(record: {
+    id: number;
+    question_text: string | null;
+    correct_answer: string | null;
+    module: string | null;
+    topic: string | null;
+    imageUrl?: string | null;
+  }): MatchExamQuestion | null {
+    if (!record.question_text?.trim()) return null;
+    const parsed = parseDragDropAnswer(record.correct_answer, record.id);
+    if (!parsed) return null;
+    const hasReusableGroups = parsed.choices.length < parsed.items.length ||
+      new Set(parsed.answer).size !== parsed.answer.length;
+    return {
+      id: record.id,
+      prompt: record.question_text.trim(),
+      imageUrl: record.imageUrl ?? null,
+      type: hasReusableGroups ? 'match' : 'drag_drop',
+      items: parsed.items,
+      choices: parsed.choices,
+      ...(hasReusableGroups
+        ? { groupSizes: parsed.choices.map((_, index) => parsed.answer.filter((answer) => answer === index).length) }
+        : {}),
+      module: record.module,
+      topic: record.topic,
+    };
+  }
+
+  private readImageQuestion(
+    record: {
+      id: number;
+      question_text: string | null;
+      correct_answer: string | null;
+      module: string | null;
+      topic: string | null;
+      imageUrl?: string | null;
+    },
+  ): MatchExamQuestion | null {
+    if (!record.question_text?.trim() || !record.imageUrl?.trim()) return null;
+    const parsed = parseDragDropAnswer(record.correct_answer, record.id);
+    if (!parsed || parsed.choices.length > parsed.items.length) return null;
+    const groupSizes = parsed.choices.map((_, choiceIndex) =>
+      parsed.answer.filter((answer) => answer === choiceIndex).length,
+    );
+    return {
+      id: record.id,
+      prompt: record.question_text.trim(),
+      imageUrl: record.imageUrl,
+      type: 'image',
+      items: parsed.items,
+      choices: parsed.choices,
+      groupSizes,
+      module: record.module,
+      topic: record.topic,
+    };
+  }
+
+  private readStoredMatchingQuestion(
+    record: {
+      id: number;
+      question_text: string | null;
+      choices: string | null;
+      correct_answer: string | null;
+      question_type?: string | null;
+      match_items?: Prisma.JsonValue | null;
+      module: string | null;
+      topic: string | null;
+      imageUrl?: string | null;
+    },
+    options: string[] | null,
+  ): MatchExamQuestion | null {
+    const items = record.match_items;
+    const matchItems = Array.isArray(items)
+      ? items.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+    if (
+      !record.question_text?.trim() ||
+      !record.correct_answer ||
+      !options ||
+      options.length < 2 ||
+      options.length > 8 ||
+      !options.every((option) => option.trim().length > 0) ||
+      new Set(options).size !== options.length ||
+      !Array.isArray(items) ||
+      matchItems.length !== items.length ||
+      matchItems.length < 2 ||
+      matchItems.length > 8 ||
+      new Set(matchItems).size !== matchItems.length
+    ) {
+      return null;
+    }
+    let correctIndexes: number[];
+    try {
+      correctIndexes = this.parseMatchAnswer(record.correct_answer, matchItems.length, options.length);
+    } catch {
+      return null;
+    }
+    const type = record.question_type === 'drag_drop'
+      ? 'drag_drop'
+      : record.question_type === 'image'
+        ? 'image'
+        : 'match';
+    if (type === 'drag_drop' &&
+      new Set(correctIndexes).size !== correctIndexes.length) {
+      return null;
+    }
+    if (type === 'image' && (!record.imageUrl?.trim() || options.length > matchItems.length)) {
+      return null;
+    }
+    const groupedMatch = options.length <= matchItems.length &&
+      (options.length !== matchItems.length || new Set(correctIndexes).size !== correctIndexes.length);
+    return {
+      id: record.id,
+      prompt: record.question_text.trim(),
+      imageUrl: record.imageUrl ?? null,
+      type,
+      items: matchItems,
+      choices: options,
+      ...(type === 'image'
+        ? { groupSizes: options.map((_, index) => correctIndexes.filter((answer) => answer === index).length) }
+        : groupedMatch
+        ? { groupSizes: options.map((_, index) => correctIndexes.filter((answer) => answer === index).length) }
+        : {}),
       module: record.module,
       topic: record.topic,
     };
@@ -528,8 +684,11 @@ export class QuestionsService {
       ) {
         throw new InternalServerErrorException('The saved exam attempt has invalid questions.');
       }
-      const type = 'type' in item && item.type === 'match' ? 'match' : 'single';
-      if (type === 'match') {
+      const type = 'type' in item &&
+        (item.type === 'match' || item.type === 'drag_drop' || item.type === 'image')
+        ? item.type
+        : 'single';
+      if (type !== 'single') {
         const rawGroupSizes = 'groupSizes' in item ? item.groupSizes : undefined;
         const groupSizes = Array.isArray(rawGroupSizes) &&
           rawGroupSizes.every((size): size is number =>
@@ -561,7 +720,7 @@ export class QuestionsService {
           imageUrl: 'imageUrl' in item && (typeof item.imageUrl === 'string' || item.imageUrl === null)
             ? item.imageUrl
             : null,
-          type: 'match',
+          type,
           items: item.items,
           choices: item.choices,
           ...(Array.isArray(groupSizes) ? { groupSizes } : {}),
@@ -638,7 +797,7 @@ export class QuestionsService {
       submittedAt: attempt.submittedAt?.getTime() ?? null,
       isSubmitted: attempt.submittedAt !== null,
       questions: signedQuestions.map((question) =>
-        question.type === 'match'
+        question.type !== 'single'
           ? {
               id: question.id,
               prompt: question.prompt,
@@ -722,11 +881,11 @@ export class QuestionsService {
       const question = this.readQuestion(row);
       if (!question) return [];
 
-      const answer = question.type === 'match'
-        ? row.question_type === 'match'
+      const answer = question.type === 'single'
+        ? question.options.indexOf(this.findCorrectOption(question.options, row.correct_answer) ?? '')
+        : ['match', 'drag_drop', 'image'].includes(row.question_type ?? '')
           ? this.parseMatchAnswer(row.correct_answer, question.items.length, question.choices.length)
-          : parseDragDropAnswer(row.correct_answer, row.id)?.answer
-        : question.options.indexOf(this.findCorrectOption(question.options, row.correct_answer) ?? '');
+          : parseDragDropAnswer(row.correct_answer, row.id)?.answer;
       if (answer === undefined || answer === -1 || (Array.isArray(answer) && answer.length === 0)) {
         return [];
       }
