@@ -32,6 +32,7 @@ type MatchExamQuestion = Omit<ExamQuestionBase, 'options'> & {
   type: 'match';
   items: string[];
   choices: string[];
+  groupSizes?: number[];
 };
 type ExamQuestion = SingleExamQuestion | MatchExamQuestion;
 
@@ -126,11 +127,20 @@ export class QuestionsService {
       ...randomizedMatches.slice(blockIndex * 5, (blockIndex + 1) * 5),
       ...randomizedSingles.slice(blockIndex * 45, (blockIndex + 1) * 45),
     ]).flatMap((block) => this.shuffle(block));
-    const questionSet = selectedQuestions.map((question) =>
-      question.type === 'match'
-        ? { ...question, choices: this.shuffle(question.choices) }
-        : { ...question, options: this.shuffle(question.options) },
-    );
+    const questionSet = selectedQuestions.map((question) => {
+      if (question.type !== 'match') {
+        return { ...question, options: this.shuffle(question.options) };
+      }
+      const choiceOrder = this.shuffle(question.choices.map((_, index) => index));
+      const groupSizes = question.groupSizes;
+      return {
+        ...question,
+        choices: choiceOrder.map((index) => question.choices[index]),
+        ...(groupSizes
+          ? { groupSizes: choiceOrder.map((index) => groupSizes[index]) }
+          : {}),
+      };
+    });
     const startedAt = new Date();
     const deadline = new Date(startedAt.getTime() + config.durationSeconds * 1000);
     const attempt = await this.prisma.examAttempt.create({
@@ -375,11 +385,14 @@ export class QuestionsService {
       ) {
         return null;
       }
+      let correctIndexes: number[];
       try {
-        this.parseMatchAnswer(record.correct_answer, matchItems.length, options.length);
+        correctIndexes = this.parseMatchAnswer(record.correct_answer, matchItems.length, options.length);
       } catch {
         return null;
       }
+      const groupedMatch = options.length <= matchItems.length &&
+        (options.length !== matchItems.length || new Set(correctIndexes).size !== correctIndexes.length);
       return {
         id: record.id,
         prompt: record.question_text.trim(),
@@ -387,6 +400,9 @@ export class QuestionsService {
         type: 'match',
         items: matchItems,
         choices: options,
+        ...(groupedMatch
+          ? { groupSizes: options.map((_, index) => correctIndexes.filter((answer) => answer === index).length) }
+          : {}),
         module: record.module,
         topic: record.topic,
       };
@@ -497,6 +513,13 @@ export class QuestionsService {
       }
       const type = 'type' in item && item.type === 'match' ? 'match' : 'single';
       if (type === 'match') {
+        const rawGroupSizes = 'groupSizes' in item ? item.groupSizes : undefined;
+        const groupSizes = Array.isArray(rawGroupSizes) &&
+          rawGroupSizes.every((size): size is number =>
+            typeof size === 'number' && Number.isInteger(size) && size >= 0,
+          )
+          ? rawGroupSizes
+          : undefined;
         if (
           !('items' in item) ||
           !Array.isArray(item.items) ||
@@ -507,7 +530,11 @@ export class QuestionsService {
           !Array.isArray(item.choices) ||
           item.choices.length < 2 ||
           item.choices.length > 8 ||
-          !item.choices.every((choice): choice is string => typeof choice === 'string')
+          !item.choices.every((choice): choice is string => typeof choice === 'string') ||
+          (rawGroupSizes !== undefined &&
+            (!Array.isArray(groupSizes) ||
+              groupSizes.length !== item.choices.length ||
+              groupSizes.reduce((total, size) => total + size, 0) !== item.items.length))
         ) {
           throw new InternalServerErrorException('The saved exam attempt has invalid questions.');
         }
@@ -520,6 +547,7 @@ export class QuestionsService {
           type: 'match',
           items: item.items,
           choices: item.choices,
+          ...(Array.isArray(groupSizes) ? { groupSizes } : {}),
           module: item.module,
           topic: item.topic,
         };
@@ -601,6 +629,7 @@ export class QuestionsService {
               type: question.type,
               items: question.items,
               choices: question.choices,
+              ...(question.groupSizes ? { groupSizes: question.groupSizes } : {}),
               module: question.module,
               topic: question.topic,
             }

@@ -160,6 +160,37 @@ describe('QuestionsService', () => {
     expect(prismaMock.examAttempt.create.mock.calls[0][0].data.userId).toBe(7);
   });
 
+  it('returns shuffled group sizes for grouped matching questions without exposing their answer keys', async () => {
+    const databaseQuestions = examQuestionBank(50).map((question) =>
+      question.id === 46
+        ? {
+            ...question,
+            choices: JSON.stringify(['Network', 'Host', 'Broadcast']),
+            correct_answer: '[0,0,1,0]',
+            match_items: ['Address A', 'Address B', 'Address C', 'Address D'],
+          }
+        : question,
+    );
+    prismaMock.questions.findMany.mockResolvedValue(databaseQuestions);
+
+    const attempt = await service.startExam('short', 7);
+    const groupedQuestion = attempt.questions.find((question) => question.id === 46);
+
+    expect(groupedQuestion).toMatchObject({
+      type: 'match',
+      groupSizes: expect.any(Array),
+    });
+    if (groupedQuestion?.type !== 'match') throw new Error('Expected a matching question.');
+    expect(groupedQuestion.groupSizes).toHaveLength(groupedQuestion.choices.length);
+    expect(groupedQuestion.groupSizes?.reduce((total, size) => total + size, 0)).toBe(4);
+    expect(Object.fromEntries(groupedQuestion.choices.map((choice, index) => [
+      choice,
+      groupedQuestion.groupSizes?.[index],
+    ]))).toEqual({ Network: 3, Host: 1, Broadcast: 0 });
+    expect(groupedQuestion).not.toHaveProperty('answer');
+    expect(groupedQuestion).not.toHaveProperty('correct_answer');
+  });
+
   it('returns signed database image URLs with exam questions', async () => {
     const imagePath = 'questions/ccna-exhibit.webp';
     const signedUrl = 'https://storage.example/questions/ccna-exhibit.webp?token=signed';
