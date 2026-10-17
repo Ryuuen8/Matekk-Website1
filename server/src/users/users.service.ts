@@ -29,14 +29,17 @@ function getEnrolledProgramNames(
     }>,
     legacyPrograms: string | null | undefined,
 ): string | undefined {
-    const names = [...new Set(
-        enrollments
+    const names = [
+        ...enrollments
             .flatMap(({ program }) => program.parentId === null
                 ? [program.name, ...program.modules.map((module) => module.name)]
                 : [program.name])
             .map((name) => name.trim())
             .filter(Boolean),
-    )];
+        ...(legacyPrograms ?? '').split(',').map((name) => name.trim()).filter(Boolean),
+    ].filter((name, index, allNames) =>
+        allNames.findIndex((candidate) => candidate.toLowerCase() === name.toLowerCase()) === index,
+    );
 
     return names.length > 0 ? names.join(', ') : legacyPrograms || undefined;
 }
