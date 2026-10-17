@@ -35,6 +35,9 @@ describe('AuthService', () => {
     const findUnique = vi.fn(async () => user);
     const findById = vi.fn(async () => options.foundUser ?? user);
     const enrollmentFindMany = vi.fn(async () => []);
+    const programFindUnique = vi.fn(async () => null);
+    const inquiryFindFirst = vi.fn(async () => null);
+    const inquiryCreate = vi.fn(async () => ({ id: 42 }));
     const sendUserStatusEmail = vi.fn(async () => undefined);
     const sendAdminNotification = vi.fn(async () => undefined);
     const request = vi.fn(async () => true);
@@ -47,6 +50,8 @@ describe('AuthService', () => {
       {
         users: { findFirst, findUnique, create, update },
         enrollment: { findMany: enrollmentFindMany },
+        program: { findUnique: programFindUnique },
+        inquires: { findFirst: inquiryFindFirst, create: inquiryCreate },
       } as unknown as PrismaService,
       { sendUserStatusEmail, sendAdminNotification } as unknown as EmailService,
       { request, verify: verifyEmail, consumeVerification } as unknown as OtpService,
@@ -55,6 +60,7 @@ describe('AuthService', () => {
     return {
       service, findOne, findById, signAsync, hash, verify, needsRehash, findFirst,
       findUnique, create, update, enrollmentFindMany,
+      programFindUnique, inquiryFindFirst, inquiryCreate,
       sendUserStatusEmail, sendAdminNotification, request, verifyEmail, consumeVerification,
     };
   }
@@ -92,6 +98,7 @@ describe('AuthService', () => {
         enrollments: { create: { programId: 4 } },
       },
     });
+
     expect(mocks.consumeVerification).toHaveBeenCalledWith(
       'student@example.com',
       'REGISTRATION',
@@ -107,6 +114,51 @@ describe('AuthService', () => {
     expect(mocks.sendAdminNotification).toHaveBeenCalledWith({
       name: 'Sample Student',
       email: 'student@example.com',
+    });
+  });
+
+  it('creates a pending enrollment inquiry for the selected program', async () => {
+    const mocks = createService();
+    mocks.findUnique.mockResolvedValue({
+      ...user,
+      first_name: 'Sample',
+      last_name: 'Student',
+    });
+    mocks.programFindUnique.mockResolvedValue({
+      id: 4,
+      name: 'Network+',
+      parentId: null,
+      training: { name: 'CompTIA' },
+      parent: null,
+    });
+
+    await expect(mocks.service.createEnrollmentRequest(12, {
+      programId: 4,
+      email: ' Student@Example.com ',
+      phone: ' 09171234567 ',
+    })).resolves.toEqual({
+      message: 'Enrollment request submitted for administrator review.',
+    });
+
+    expect(mocks.inquiryFindFirst).toHaveBeenCalledWith({
+      where: {
+        inquiry_type: 'Enrollment Request',
+        project_desc: 'Account ID: 12; Program ID: 4',
+        status: true,
+      },
+      select: { id: true },
+    });
+    expect(mocks.inquiryCreate).toHaveBeenCalledWith({
+      data: {
+        inquiry_type: 'Enrollment Request',
+        name: 'Sample Student',
+        email: 'student@example.com',
+        phone: '09171234567',
+        subject: 'Enrollment request: Network+',
+        course: 'Network+',
+        message: 'Sample Student requested enrollment in Network+.',
+        project_desc: 'Account ID: 12; Program ID: 4',
+      },
     });
   });
 

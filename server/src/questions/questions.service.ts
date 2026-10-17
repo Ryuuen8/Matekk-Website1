@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { StorageService } from '../storage/storage.service.js';
 import { GradebookService } from '../gradebook/gradebook.service.js';
+import { ProgramAccessService } from '../users/program-access.service.js';
 import { parseDragDropAnswer } from './drag-drop-answer.js';
 
 const EXAM_CONFIG = {
@@ -27,7 +28,10 @@ type ExamQuestionBase = {
   module: string | null;
   topic: string | null;
 };
-type SingleExamQuestion = ExamQuestionBase & { type: 'single' };
+type SingleExamQuestion = ExamQuestionBase & {
+  type: 'single';
+  correctAnswer?: string;
+};
 type MatchExamQuestion = Omit<ExamQuestionBase, 'options'> & {
   type: 'match' | 'drag_drop' | 'click_boxes' | 'image';
   items: string[];
@@ -38,8 +42,17 @@ type ExamQuestion = SingleExamQuestion | MatchExamQuestion;
 type ParsedChoice = { id: string | null; text: string };
 
 function isSingleChoiceQuestionType(questionType: string | null | undefined) {
-  return !questionType ||
-    ['single', 'multiple_choice'].includes(questionType.trim().toLocaleLowerCase().replace(/[\s-]+/g, '_'));
+  const normalizedType = questionType?.trim().toLocaleLowerCase().replace(/[\s-]+/g, '_');
+  return !normalizedType ||
+    ['single', 'single_choice', 'multiple_choice', 'mcq', 'radio'].includes(normalizedType);
+}
+
+function normalizeQuestionType(questionType: string | null | undefined) {
+  return questionType?.trim().toLocaleLowerCase().replace(/[\s-]+/g, '_') ?? '';
+}
+
+function isCcnaExamModule(module: string | null) {
+  return typeof module === 'string' && /^ccna(?: part \d+)?$/i.test(module.trim());
 }
 
 const QUESTIONS_PER_BLOCK = {
@@ -56,6 +69,7 @@ export class QuestionsService {
     private prisma: PrismaService,
     private storage: StorageService,
     private gradebook: GradebookService,
+    private programAccess: ProgramAccessService,
   ) {}
 
   create(data: CreateQuestionDto) {
@@ -117,11 +131,36 @@ export class QuestionsService {
     return this.prisma.questions.findMany();
   }
 
-  async startExam(examKey: string, userId: number) {
+  async startExam(
+    examKey: string,
+    userId: number,
+    moduleName?: string,
+    programKey?: string,
+  ) {
     const config = this.getExamConfig(examKey);
-    const bank = await this.prisma.questions.findMany();
+    const hasModuleScope = moduleName !== undefined || programKey !== undefined;
+    if (hasModuleScope && (!moduleName?.trim() || !programKey?.trim())) {
+      throw new BadRequestException('Both module and programKey are required for a module exam.');
+    }
+    if (moduleName && programKey) {
+      if (
+        moduleName.trim().length > 120 ||
+        !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(programKey)
+      ) {
+        throw new BadRequestException('The module exam scope is invalid.');
+      }
+      await this.programAccess.assertQuestionModuleEnrollment(userId, programKey, moduleName);
+    }
+
+    const examBank = moduleName && programKey
+      ? await this.prisma.questions.findMany({
+          where: { module: { equals: moduleName.trim(), mode: 'insensitive' } },
+        })
+      : (await this.prisma.questions.findMany({
+          where: { module: { startsWith: 'CCNA', mode: 'insensitive' } },
+        })).filter((record) => isCcnaExamModule(record.module));
     const seenPrompts = new Set<string>();
-    const usableQuestions = bank.flatMap((record) => {
+    const usableQuestions = examBank.flatMap((record) => {
       const question = this.readQuestion(record);
       return question ? [question] : [];
     }).filter((question) => {
@@ -131,65 +170,91 @@ export class QuestionsService {
       return true;
     });
 
+    if (moduleName && programKey && usableQuestions.length < config.questionCount) {
+      throw new BadRequestException(
+        `The ${moduleName.trim()} question bank has ${usableQuestions.length} valid unique questions; ${config.title} requires ${config.questionCount}.`,
+      );
+    }
     if (usableQuestions.length < config.questionCount) {
       throw new BadRequestException(
-        bank.length === 0
-          ? `This exam requires ${config.questionCount} questions, but the Questions table is empty.`
-          : `This exam requires ${config.questionCount} valid questions. The Questions table has ${bank.length} rows, but only ${usableQuestions.length} have a readable prompt, choices, and matching correct answer.`,
+        examBank.length === 0
+          ? `This exam requires ${config.questionCount} questions, but no questions were found in the CCNA or CCNA Part N modules.`
+          : `This exam requires ${config.questionCount} valid questions. The CCNA question bank has ${examBank.length} rows, but only ${usableQuestions.length} have a readable prompt, choices, and matching correct answer.`,
       );
     }
 
     // Persist each randomized set so a resumed attempt keeps the same questions and option order.
-    const questionBlocks = config.questionCount / 50;
-    const requiredDragDrop = questionBlocks * QUESTIONS_PER_BLOCK.dragDrop;
-    const requiredClickBoxes = questionBlocks * QUESTIONS_PER_BLOCK.clickBoxes;
-    const requiredImages = questionBlocks * QUESTIONS_PER_BLOCK.image;
-    const requiredMatches = questionBlocks * QUESTIONS_PER_BLOCK.match;
-    const matchingQuestions = usableQuestions.filter((question) => question.type === 'match');
-    const dragDropQuestions = usableQuestions.filter(
-      (question): question is MatchExamQuestion => question.type === 'drag_drop',
-    );
-    const clickBoxesQuestions = usableQuestions.filter((question) => question.type === 'click_boxes');
-    const imageQuestions = usableQuestions.filter((question) => question.type === 'image');
-    const singleQuestions = usableQuestions.filter((question) => question.type === 'single');
-    const requiredSingles = questionBlocks * QUESTIONS_PER_BLOCK.single;
-    const missingClickBoxes = Math.max(0, requiredClickBoxes - clickBoxesQuestions.length);
-    const randomizedDragDropPool = this.shuffle(dragDropQuestions);
-    const borrowedClickBoxes = missingClickBoxes > 0
-      ? randomizedDragDropPool.slice(requiredDragDrop, requiredDragDrop + missingClickBoxes)
-      : [];
-    if (
-      dragDropQuestions.length < requiredDragDrop + missingClickBoxes ||
-      clickBoxesQuestions.length + borrowedClickBoxes.length < requiredClickBoxes ||
-      imageQuestions.length < requiredImages ||
-      matchingQuestions.length < requiredMatches ||
-      singleQuestions.length < requiredSingles
-    ) {
-      throw new BadRequestException(
-        `This exam requires ${requiredMatches} connect-the-dots, ${requiredDragDrop} drag-and-drop, ${requiredClickBoxes} click-the-boxes, ${requiredImages} image-based, and ${requiredSingles} multiple-choice questions. ` +
-        `The Questions table has ${matchingQuestions.length} valid connect-the-dots, ${dragDropQuestions.length} valid drag-and-drop (including one-to-one questions eligible for the click-the-boxes interaction), ${clickBoxesQuestions.length} valid click-the-boxes, ${imageQuestions.length} valid image-based, and ${singleQuestions.length} valid multiple-choice questions.`,
+    let selectedQuestions: ExamQuestion[];
+    if (moduleName && programKey) {
+      selectedQuestions = this.shuffle(usableQuestions).slice(0, config.questionCount);
+    } else {
+      const questionBlocks = config.questionCount / 50;
+      const requiredDragDrop = questionBlocks * QUESTIONS_PER_BLOCK.dragDrop;
+      const requiredClickBoxes = questionBlocks * QUESTIONS_PER_BLOCK.clickBoxes;
+      const requiredImages = questionBlocks * QUESTIONS_PER_BLOCK.image;
+      const requiredMatches = questionBlocks * QUESTIONS_PER_BLOCK.match;
+      const matchingQuestions = usableQuestions.filter((question) => question.type === 'match');
+      const dragDropQuestions = usableQuestions.filter(
+        (question): question is MatchExamQuestion => question.type === 'drag_drop',
       );
-    }
+      const clickBoxesQuestions = usableQuestions.filter((question) => question.type === 'click_boxes');
+      const imageQuestions = usableQuestions.filter((question) => question.type === 'image');
+      const singleQuestions = usableQuestions.filter((question) => question.type === 'single');
+      const requiredSingles = questionBlocks * QUESTIONS_PER_BLOCK.single;
+      const missingClickBoxes = Math.max(0, requiredClickBoxes - clickBoxesQuestions.length);
+      const randomizedDragDropPool = this.shuffle(dragDropQuestions);
+      const borrowedClickBoxes = missingClickBoxes > 0
+        ? randomizedDragDropPool.slice(requiredDragDrop, requiredDragDrop + missingClickBoxes)
+        : [];
+      if (
+        dragDropQuestions.length < requiredDragDrop + missingClickBoxes ||
+        clickBoxesQuestions.length + borrowedClickBoxes.length < requiredClickBoxes ||
+        imageQuestions.length < requiredImages ||
+        matchingQuestions.length < requiredMatches ||
+        singleQuestions.length < requiredSingles
+      ) {
+        throw new BadRequestException(
+          `This exam requires ${requiredMatches} connect-the-dots, ${requiredDragDrop} drag-and-drop, ${requiredClickBoxes} click-the-boxes, ${requiredImages} image-based, and ${requiredSingles} multiple-choice questions. ` +
+          `The Questions table has ${matchingQuestions.length} valid connect-the-dots, ${dragDropQuestions.length} valid drag-and-drop (including one-to-one questions eligible for the click-the-boxes interaction), ${clickBoxesQuestions.length} valid click-the-boxes, ${imageQuestions.length} valid image-based, and ${singleQuestions.length} valid multiple-choice questions.`,
+        );
+      }
 
-    const randomizedMatches = this.shuffle(matchingQuestions);
-    const borrowedIds = new Set(borrowedClickBoxes.map(({ id }) => id));
-    const randomizedDragDrop = randomizedDragDropPool.filter(({ id }) => !borrowedIds.has(id));
-    const randomizedClickBoxes = this.shuffle([
-      ...clickBoxesQuestions,
-      ...borrowedClickBoxes.map((question) => ({ ...question, type: 'click_boxes' as const })),
-    ]);
-    const randomizedImages = this.shuffle(imageQuestions);
-    const randomizedSingles = this.shuffle(singleQuestions);
-    const selectedQuestions = Array.from({ length: questionBlocks }, (_, blockIndex) => [
-      ...randomizedMatches.slice(blockIndex * QUESTIONS_PER_BLOCK.match, (blockIndex + 1) * QUESTIONS_PER_BLOCK.match),
-      ...randomizedDragDrop.slice(blockIndex * QUESTIONS_PER_BLOCK.dragDrop, (blockIndex + 1) * QUESTIONS_PER_BLOCK.dragDrop),
-      ...randomizedClickBoxes.slice(blockIndex * QUESTIONS_PER_BLOCK.clickBoxes, (blockIndex + 1) * QUESTIONS_PER_BLOCK.clickBoxes),
-      ...randomizedImages.slice(blockIndex * QUESTIONS_PER_BLOCK.image, (blockIndex + 1) * QUESTIONS_PER_BLOCK.image),
-      ...randomizedSingles.slice(blockIndex * QUESTIONS_PER_BLOCK.single, (blockIndex + 1) * QUESTIONS_PER_BLOCK.single),
-    ]).flatMap((block) => this.shuffle(block));
+      const randomizedMatches = this.shuffle(matchingQuestions);
+      const borrowedIds = new Set(borrowedClickBoxes.map(({ id }) => id));
+      const randomizedDragDrop = randomizedDragDropPool.filter(({ id }) => !borrowedIds.has(id));
+      const randomizedClickBoxes = this.shuffle([
+        ...clickBoxesQuestions,
+        ...borrowedClickBoxes.map((question) => ({ ...question, type: 'click_boxes' as const })),
+      ]);
+      const randomizedImages = this.shuffle(imageQuestions);
+      const randomizedSingles = this.shuffle(singleQuestions);
+      selectedQuestions = Array.from({ length: questionBlocks }, (_, blockIndex) => [
+        ...randomizedMatches.slice(blockIndex * QUESTIONS_PER_BLOCK.match, (blockIndex + 1) * QUESTIONS_PER_BLOCK.match),
+        ...randomizedDragDrop.slice(blockIndex * QUESTIONS_PER_BLOCK.dragDrop, (blockIndex + 1) * QUESTIONS_PER_BLOCK.dragDrop),
+        ...randomizedClickBoxes.slice(blockIndex * QUESTIONS_PER_BLOCK.clickBoxes, (blockIndex + 1) * QUESTIONS_PER_BLOCK.clickBoxes),
+        ...randomizedImages.slice(blockIndex * QUESTIONS_PER_BLOCK.image, (blockIndex + 1) * QUESTIONS_PER_BLOCK.image),
+        ...randomizedSingles.slice(blockIndex * QUESTIONS_PER_BLOCK.single, (blockIndex + 1) * QUESTIONS_PER_BLOCK.single),
+      ]).flatMap((block) => this.shuffle(block));
+    }
+    const sourceQuestionById = new Map(examBank.map((record) => [record.id, record]));
     const questionSet = selectedQuestions.map((question) => {
       if (question.type === 'single') {
-        return { ...question, options: this.shuffle(question.options) };
+        const source = sourceQuestionById.get(question.id);
+        const correctAnswer = source?.correct_answer
+          ? this.findCorrectOption(
+              question.options,
+              source.correct_answer,
+              this.parseChoiceData(source.choices)?.map(({ id }) => id),
+            )
+          : null;
+        if (!correctAnswer) {
+          throw new InternalServerErrorException('A selected question has no readable correct answer.');
+        }
+        return {
+          ...question,
+          correctAnswer,
+          options: this.shuffle(question.options),
+        };
       }
       const choiceOrder = this.shuffle(question.choices.map((_, index) => index));
       const groupSizes = question.groupSizes;
@@ -208,6 +273,8 @@ export class QuestionsService {
         id: randomUUID(),
         userId,
         examKey,
+        programKey: programKey ?? null,
+        module: moduleName?.trim() ?? null,
         questionSet: questionSet satisfies Prisma.InputJsonValue,
         durationSeconds: config.durationSeconds,
         deadline,
@@ -323,7 +390,7 @@ export class QuestionsService {
       }
 
       const sourceChoices = this.parseChoiceData(source.choices);
-      const correctAnswer = this.findCorrectOption(
+      const correctAnswer = question.correctAnswer ?? this.findCorrectOption(
         question.options,
         source.correct_answer,
         sourceChoices?.map(({ id }) => id),
@@ -440,6 +507,8 @@ export class QuestionsService {
       score: number | null;
       submittedAt: Date | null;
       questionSet: Prisma.JsonValue;
+      programKey?: string | null;
+      module?: string | null;
     },
     examKey: string,
     userId: number,
@@ -449,11 +518,13 @@ export class QuestionsService {
     }
     const config = this.getExamConfig(examKey);
     const questionSet = this.parseQuestionSet(attempt.questionSet);
-    await this.gradebook.recordAssessment(userId, 'ccna', {
+    const programKey = attempt.programKey ?? 'ccna';
+    await this.gradebook.recordAssessment(userId, programKey, {
       id: attempt.id,
       type: 'exam',
-      programKey: 'ccna',
-      title: config.title,
+      programKey,
+      examFormat: examKey,
+      title: attempt.module ? `${config.title} · ${attempt.module}` : config.title,
       score: attempt.score,
       maxScore: questionSet.length,
       submittedAt: attempt.submittedAt.getTime(),
@@ -481,7 +552,7 @@ export class QuestionsService {
     if (
       record.question_text?.trim() &&
       !record.choices?.trim() &&
-      (!record.question_type || record.question_type === 'single')
+      isSingleChoiceQuestionType(record.question_type)
     ) {
       return record.imageUrl?.trim()
         ? this.readImageQuestion(record)
@@ -492,7 +563,17 @@ export class QuestionsService {
     if (!record.question_text?.trim() || !record.choices || !record.correct_answer) return null;
 
     const options = this.parseChoices(record.choices);
-    if (['match', 'drag_drop', 'click_boxes', 'image'].includes(record.question_type ?? '')) {
+    if ([
+      'match',
+      'connect_the_dots',
+      'connect_dots',
+      'drag_drop',
+      'drag_and_drop',
+      'click_boxes',
+      'click_the_boxes',
+      'image',
+      'image_based',
+    ].includes(normalizeQuestionType(record.question_type))) {
       return this.readStoredMatchingQuestion(record, options);
     }
     if (!isSingleChoiceQuestionType(record.question_type)) return null;
@@ -615,13 +696,17 @@ export class QuestionsService {
     } catch {
       return null;
     }
-    const type = record.question_type === 'drag_drop'
+    const questionType = normalizeQuestionType(record.question_type);
+    const type = questionType === 'drag_drop' || questionType === 'drag_and_drop'
       ? 'drag_drop'
-      : record.question_type === 'click_boxes'
+      : questionType === 'click_boxes' || questionType === 'click_the_boxes'
         ? 'click_boxes'
-        : record.question_type === 'image'
+        : questionType === 'image' || questionType === 'image_based'
           ? 'image'
-          : 'match';
+          : questionType === 'match' || questionType === 'connect_the_dots' || questionType === 'connect_dots'
+            ? 'match'
+            : null;
+    if (!type) return null;
     if ((type === 'drag_drop' || type === 'click_boxes') &&
       new Set(correctIndexes).size !== correctIndexes.length) {
       return null;
@@ -809,7 +894,9 @@ export class QuestionsService {
         !Array.isArray(item.options) ||
         item.options.length < 2 ||
         item.options.length > 8 ||
-        !item.options.every((option): option is string => typeof option === 'string')
+        !item.options.every((option): option is string => typeof option === 'string') ||
+        ('correctAnswer' in item &&
+          (typeof item.correctAnswer !== 'string' || !item.options.includes(item.correctAnswer)))
       ) {
         throw new InternalServerErrorException('The saved exam attempt has invalid questions.');
       }
@@ -821,8 +908,11 @@ export class QuestionsService {
           : null,
         type: 'single',
         options: item.options,
-        module: item.module,
-        topic: item.topic,
+          ...('correctAnswer' in item && typeof item.correctAnswer === 'string'
+            ? { correctAnswer: item.correctAnswer }
+            : {}),
+          module: item.module,
+          topic: item.topic,
       };
     });
   }
@@ -908,8 +998,9 @@ export class QuestionsService {
   }
 
   async findBank(module?: string) {
+    const moduleWhere = this.getModuleWhere(module);
     const rows = await this.prisma.questions.findMany({
-      ...(module === undefined ? {} : { where: { module } }),
+      ...(moduleWhere ? { where: moduleWhere } : {}),
       select: {
         id: true,
         module: true,
@@ -938,8 +1029,9 @@ export class QuestionsService {
   }
 
   async findUsableBank(module?: string) {
+    const moduleWhere = this.getModuleWhere(module);
     const rows = await this.prisma.questions.findMany({
-      ...(module === undefined ? {} : { where: { module } }),
+      ...(moduleWhere ? { where: moduleWhere } : {}),
       select: {
         id: true,
         module: true,
@@ -965,9 +1057,9 @@ export class QuestionsService {
             row.correct_answer,
             this.parseChoiceData(row.choices)?.map(({ id }) => id),
           ) ?? '')
-        : ['match', 'drag_drop', 'click_boxes', 'image'].includes(row.question_type ?? '')
-          ? this.parseMatchAnswer(row.correct_answer, question.items.length, question.choices.length)
-          : parseDragDropAnswer(row.correct_answer, row.id)?.answer;
+        : isSingleChoiceQuestionType(row.question_type)
+          ? parseDragDropAnswer(row.correct_answer, row.id)?.answer
+          : this.parseMatchAnswer(row.correct_answer, question.items.length, question.choices.length);
       if (answer === undefined || answer === -1 || (Array.isArray(answer) && answer.length === 0)) {
         return [];
       }
@@ -994,5 +1086,19 @@ export class QuestionsService {
       ...row,
       imageUrl: row.imageUrl ? signedUrls.get(row.imageUrl) ?? row.imageUrl : null,
     }));
+  }
+
+  private getModuleWhere(module?: string): Prisma.QuestionsWhereInput | undefined {
+    if (module === undefined) return undefined;
+    const normalizedModule = module.trim();
+    if (!normalizedModule || normalizedModule.length > 120) {
+      throw new BadRequestException('The module filter must contain between 1 and 120 characters.');
+    }
+    return {
+      module: {
+        equals: normalizedModule,
+        mode: 'insensitive',
+      },
+    };
   }
 }

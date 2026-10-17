@@ -69,6 +69,8 @@ model ExamAttempt {
   id              String    @id
   userId          Int
   examKey         String
+  programKey      String?
+  module          String?
   questionSet     Json      @db.JsonB
   durationSeconds Int
   deadline        DateTime
@@ -78,6 +80,7 @@ model ExamAttempt {
   user            Users     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, examKey])
+  @@index([userId, programKey, examKey])
 }
 
 model AuthLoginAttempt {

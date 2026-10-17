@@ -3,6 +3,7 @@ import { QuestionsService } from './questions.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { GradebookService } from '../gradebook/gradebook.service.js';
+import { ProgramAccessService } from '../users/program-access.service.js';
 
 function examQuestionBank(questionCount: number) {
   return Array.from({ length: questionCount / 50 }, (_, blockIndex) => {
@@ -79,6 +80,7 @@ function examQuestionBank(questionCount: number) {
 describe('QuestionsService', () => {
   let service: QuestionsService;
   let gradebookMock: { recordAssessment: ReturnType<typeof vi.fn> };
+  let programAccessMock: { assertQuestionModuleEnrollment: ReturnType<typeof vi.fn> };
   let storageMock: { createSignedQuestionImageUrls: ReturnType<typeof vi.fn> };
   let prismaMock: {
     questions: {
@@ -94,6 +96,7 @@ describe('QuestionsService', () => {
 
   beforeEach(async () => {
     gradebookMock = { recordAssessment: vi.fn().mockResolvedValue(null) };
+    programAccessMock = { assertQuestionModuleEnrollment: vi.fn().mockResolvedValue(undefined) };
     storageMock = {
       createSignedQuestionImageUrls: vi.fn().mockResolvedValue(new Map()),
     };
@@ -122,6 +125,10 @@ describe('QuestionsService', () => {
         {
           provide: GradebookService,
           useValue: gradebookMock,
+        },
+        {
+          provide: ProgramAccessService,
+          useValue: programAccessMock,
         },
       ],
     }).compile();
@@ -169,10 +176,10 @@ describe('QuestionsService', () => {
       },
     ]);
 
-    const { questions, skippedCount } = await service.findUsableBank('CompTIA Network+');
+    const { questions, skippedCount } = await service.findUsableBank('  comptia network+  ');
 
     expect(prismaMock.questions.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { module: 'CompTIA Network+' },
+      where: { module: { equals: 'comptia network+', mode: 'insensitive' } },
       orderBy: { id: 'asc' },
     }));
     expect(questions).toHaveLength(1);
@@ -184,6 +191,41 @@ describe('QuestionsService', () => {
       answer: 2,
     });
     expect(skippedCount).toBe(1);
+  });
+
+  it('loads usable questions for new module names without a module allowlist', async () => {
+    prismaMock.questions.findMany.mockResolvedValue([{
+      id: 2401,
+      module: 'CompTIA Security+',
+      topic: 'Security Operations',
+      question_text: 'Which option is correct?',
+      choices: JSON.stringify(['First option', 'Second option']),
+      correct_answer: 'A',
+      explanation: 'The first option is correct.',
+      question_type: 'MCQ',
+      match_items: null,
+      imageUrl: null,
+    }]);
+
+    const { questions } = await service.findUsableBank('CompTIA Security+');
+
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatchObject({
+      bankId: 2401,
+      module: 'CompTIA Security+',
+      type: 'single',
+      answer: 0,
+    });
+  });
+
+  it('rejects empty or oversized module filters instead of returning an unintended bank', async () => {
+    await expect(service.findUsableBank('   ')).rejects.toThrow(
+      'The module filter must contain between 1 and 120 characters.',
+    );
+    await expect(service.findBank('x'.repeat(121))).rejects.toThrow(
+      'The module filter must contain between 1 and 120 characters.',
+    );
+    expect(prismaMock.questions.findMany).not.toHaveBeenCalled();
   });
 
   it('rejects a correct answer that is not one of the available choices', () => {
@@ -301,6 +343,7 @@ describe('QuestionsService', () => {
     const attempt = await service.startExam('short', 7);
 
     expect(attempt.questions).toHaveLength(50);
+    expect(attempt.questions.every((question) => !('correctAnswer' in question))).toBe(true);
     expect(prismaMock.examAttempt.create).toHaveBeenCalledOnce();
   });
 
@@ -335,6 +378,111 @@ describe('QuestionsService', () => {
     });
     expect(prismaMock.examAttempt.create).toHaveBeenCalledOnce();
     expect(prismaMock.examAttempt.create.mock.calls[0][0].data.userId).toBe(7);
+  });
+
+  it('keeps questions from other modules out of the CCNA exam bank', async () => {
+    const ccnaQuestions = examQuestionBank(50);
+    prismaMock.questions.findMany.mockResolvedValue([
+      ...ccnaQuestions,
+      {
+        ...ccnaQuestions[0],
+        id: 1001,
+        module: 'CompTIA Network+',
+        question_text: 'CompTIA question that must not be used.',
+      },
+      {
+        ...ccnaQuestions[1],
+        id: 1002,
+        module: 'CCNA Automation',
+        question_text: 'Automation question that must not be used.',
+      },
+      {
+        ...ccnaQuestions[2],
+        id: 1003,
+        module: 'CCNA Part 5',
+        question_text: 'Legacy CCNA module question.',
+      },
+    ]);
+
+    const attempt = await service.startExam('short', 7);
+
+    expect(prismaMock.questions.findMany).toHaveBeenCalledWith({
+      where: { module: { startsWith: 'CCNA', mode: 'insensitive' } },
+    });
+    expect(attempt.questions).toHaveLength(50);
+    expect(attempt.questions.map((question) => question.id)).not.toContain(1001);
+    expect(attempt.questions.map((question) => question.id)).not.toContain(1002);
+  });
+
+  it('starts, grades, and records a randomized module exam in its program gradebook', async () => {
+    const moduleQuestions = examQuestionBank(50).map((question) => ({
+      ...question,
+      module: 'CompTIA Network+',
+    }));
+    prismaMock.questions.findMany.mockResolvedValue(moduleQuestions);
+
+    const attempt = await service.startExam(
+      'short',
+      7,
+      'CompTIA Network+',
+      'comptia-network-plus',
+    );
+    const answers = attempt.questions.map((question) => {
+      const source = moduleQuestions.find((candidate) => candidate.id === question.id);
+      if (!source) throw new Error('The exam selected a question outside its requested module.');
+      const sourceChoices = JSON.parse(source.choices ?? '[]') as string[];
+      if (question.type === 'single') {
+        return { questionId: question.id, selectedAnswer: sourceChoices[0] };
+      }
+      const correctIndexes = JSON.parse(source.correct_answer ?? '[]') as number[];
+      return {
+        questionId: question.id,
+        selectedMatches: correctIndexes.map((index) => question.choices.indexOf(sourceChoices[index])),
+      };
+    });
+    prismaMock.examAttempt.findUnique.mockResolvedValue({
+      ...prismaMock.examAttempt.create.mock.calls[0][0].data,
+      score: null,
+      review: null,
+      submittedAt: null,
+    });
+    const result = await service.submitExam('short', attempt.attemptId, 7, answers);
+
+    expect(programAccessMock.assertQuestionModuleEnrollment).toHaveBeenCalledWith(
+      7,
+      'comptia-network-plus',
+      'CompTIA Network+',
+    );
+    expect(prismaMock.questions.findMany).toHaveBeenCalledWith({
+      where: { module: { equals: 'CompTIA Network+', mode: 'insensitive' } },
+    });
+    expect(attempt.questions).toHaveLength(50);
+    expect(prismaMock.examAttempt.create.mock.calls[0][0].data).toMatchObject({
+      examKey: 'short',
+      programKey: 'comptia-network-plus',
+      module: 'CompTIA Network+',
+    });
+    expect(result.score).toBe(50);
+    expect(gradebookMock.recordAssessment).toHaveBeenCalledWith(
+      7,
+      'comptia-network-plus',
+      expect.objectContaining({
+        id: attempt.attemptId,
+        type: 'exam',
+        programKey: 'comptia-network-plus',
+        examFormat: 'short',
+        title: 'Short Exam · CompTIA Network+',
+        score: 50,
+        maxScore: 50,
+      }),
+    );
+  });
+
+  it('requires the module and program scope to be provided together', async () => {
+    await expect(service.startExam('short', 7, 'CompTIA Network+')).rejects.toThrow(
+      'Both module and programKey are required for a module exam.',
+    );
+    expect(prismaMock.questions.findMany).not.toHaveBeenCalled();
   });
 
   it('uses an extra one-to-one drag-and-drop question for the click-the-boxes interaction when needed', async () => {
@@ -456,6 +604,7 @@ describe('QuestionsService', () => {
         id: 'attempt-id',
         type: 'exam',
         programKey: 'ccna',
+        examFormat: 'short',
         title: 'Short Exam',
         score: 1,
         maxScore: 50,
@@ -670,6 +819,43 @@ describe('QuestionsService', () => {
     });
   });
 
+  it('records a module exam result against its persisted program gradebook scope', async () => {
+    const submittedAt = new Date();
+    prismaMock.examAttempt.findUnique.mockResolvedValue({
+      id: 'network-attempt',
+      userId: 7,
+      examKey: 'short',
+      programKey: 'comptia-network-plus',
+      module: 'CompTIA Network+',
+      questionSet: [{
+        id: 1,
+        prompt: 'Question',
+        options: ['A', 'B'],
+        module: 'CompTIA Network+',
+        topic: 'Network Operations',
+      }],
+      durationSeconds: 2700,
+      deadline: new Date(Date.now() + 2700000),
+      score: 1,
+      review: [],
+      submittedAt,
+    });
+
+    const result = await service.resumeExam('short', 'network-attempt', 7);
+
+    expect(result.isSubmitted).toBe(true);
+    expect(gradebookMock.recordAssessment).toHaveBeenCalledWith(7, 'comptia-network-plus', {
+      id: 'network-attempt',
+      type: 'exam',
+      programKey: 'comptia-network-plus',
+      examFormat: 'short',
+      title: 'Short Exam · CompTIA Network+',
+      score: 1,
+      maxScore: 1,
+      submittedAt: submittedAt.getTime(),
+    });
+  });
+
   it('grades image question number-entry answers using the saved shuffled choices', async () => {
     prismaMock.examAttempt.findUnique.mockResolvedValue({
       id: 'attempt-id',
@@ -808,6 +994,7 @@ describe('QuestionsService', () => {
       id: 'attempt-id',
       type: 'exam',
       programKey: 'ccna',
+      examFormat: 'short',
       title: 'Short Exam',
       score: 1,
       maxScore: 1,
@@ -844,6 +1031,10 @@ describe('QuestionsService', () => {
         {
           provide: GradebookService,
           useValue: { recordAssessment: vi.fn().mockResolvedValue(null) },
+        },
+        {
+          provide: ProgramAccessService,
+          useValue: { assertQuestionModuleEnrollment: vi.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();

@@ -7,14 +7,16 @@ import { UsersService } from '../users/users.service.js';
 
 describe('QuestionsController', () => {
   let controller: QuestionsController;
+  const startExam = vi.fn();
 
   beforeEach(async () => {
+    startExam.mockReset();
     const module: TestingModule = await Test.createTestingModule({
       controllers: [QuestionsController],
       providers: [
         {
           provide: QuestionsService,
-          useValue: { create: () => undefined, findAll: () => [] },
+          useValue: { create: () => undefined, findAll: () => [], startExam },
         },
         { provide: UsersService, useValue: { findOne: vi.fn() } },
       ],
@@ -36,5 +38,21 @@ describe('QuestionsController', () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, controller.startExam)).toBeUndefined();
     expect(Reflect.getMetadata(GUARDS_METADATA, controller.resumeExam)).toBeUndefined();
     expect(Reflect.getMetadata(GUARDS_METADATA, controller.submitExam)).toBeUndefined();
+  });
+
+  it('passes module exam scope from the request to the question service', async () => {
+    await controller.startExam(
+      'short',
+      { user: { userId: 12 } } as never,
+      'CompTIA Network+',
+      'comptia-network-plus',
+    );
+
+    expect(startExam).toHaveBeenCalledWith(
+      'short',
+      12,
+      'CompTIA Network+',
+      'comptia-network-plus',
+    );
   });
 });

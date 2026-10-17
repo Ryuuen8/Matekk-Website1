@@ -58,4 +58,25 @@ describe('environment validation', () => {
 
         expect(error?.details[0]?.path).toEqual(['JWT_SECRET']);
     });
+
+    it('accepts an optional four-to-six digit offline module PIN', () => {
+        const { error, value } = envValidationSchema.validate({
+          SUPABASE_URL: 'https://project.supabase.co',
+          SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
+          OFFLINE_MODULE_PIN: '246810',
+        });
+
+        expect(error).toBeUndefined();
+        expect(value.OFFLINE_MODULE_PIN).toBe('246810');
+    });
+
+    it('rejects an invalid configured offline module PIN', () => {
+        const { error } = envValidationSchema.validate({
+          SUPABASE_URL: 'https://project.supabase.co',
+          SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
+          OFFLINE_MODULE_PIN: 'pin123',
+        });
+
+        expect(error?.details[0]?.path).toEqual(['OFFLINE_MODULE_PIN']);
+    });
 });
