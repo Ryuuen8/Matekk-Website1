@@ -133,6 +133,59 @@ describe('QuestionsService', () => {
     expect(service).toBeDefined();
   });
 
+  it('filters usable questions by module and normalizes Supabase multiple-choice records', async () => {
+    prismaMock.questions.findMany.mockResolvedValue([
+      {
+        id: 1955,
+        module: 'CompTIA Network+',
+        topic: '',
+        question_text: 'Which option is correct?',
+        choices: JSON.stringify([
+          { id: 'A', text: 'First option' },
+          { id: 'B', text: 'Second option' },
+          { id: 'C', text: 'Third option' },
+          { id: 'D', text: 'Fourth option' },
+        ]),
+        correct_answer: 'C',
+        explanation: 'The third option is correct.',
+        question_type: 'multiple_choice',
+        match_items: null,
+        imageUrl: null,
+      },
+      {
+        id: 1956,
+        module: 'CompTIA Network+',
+        topic: '',
+        question_text: 'Select all correct options.',
+        choices: JSON.stringify([
+          { id: 'A', text: 'First option' },
+          { id: 'B', text: 'Second option' },
+        ]),
+        correct_answer: 'A,B',
+        explanation: 'This is a multiple-select question.',
+        question_type: 'multiple_select',
+        match_items: null,
+        imageUrl: null,
+      },
+    ]);
+
+    const { questions, skippedCount } = await service.findUsableBank('CompTIA Network+');
+
+    expect(prismaMock.questions.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { module: 'CompTIA Network+' },
+      orderBy: { id: 'asc' },
+    }));
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatchObject({
+      bankId: 1955,
+      module: 'CompTIA Network+',
+      type: 'single',
+      options: ['First option', 'Second option', 'Third option', 'Fourth option'],
+      answer: 2,
+    });
+    expect(skippedCount).toBe(1);
+  });
+
   it('rejects a correct answer that is not one of the available choices', () => {
     expect(() => service.create({
       module: 'CCNA',

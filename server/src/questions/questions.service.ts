@@ -35,6 +35,12 @@ type MatchExamQuestion = Omit<ExamQuestionBase, 'options'> & {
   groupSizes?: number[];
 };
 type ExamQuestion = SingleExamQuestion | MatchExamQuestion;
+type ParsedChoice = { id: string | null; text: string };
+
+function isSingleChoiceQuestionType(questionType: string | null | undefined) {
+  return !questionType ||
+    ['single', 'multiple_choice'].includes(questionType.trim().toLocaleLowerCase().replace(/[\s-]+/g, '_'));
+}
 
 const QUESTIONS_PER_BLOCK = {
   match: 5,
@@ -316,7 +322,12 @@ export class QuestionsService {
         };
       }
 
-      const correctAnswer = this.findCorrectOption(question.options, source.correct_answer);
+      const sourceChoices = this.parseChoiceData(source.choices);
+      const correctAnswer = this.findCorrectOption(
+        question.options,
+        source.correct_answer,
+        sourceChoices?.map(({ id }) => id),
+      );
       if (!correctAnswer) {
         throw new InternalServerErrorException('A question in this exam is no longer available for grading.');
       }
@@ -484,13 +495,14 @@ export class QuestionsService {
     if (['match', 'drag_drop', 'click_boxes', 'image'].includes(record.question_type ?? '')) {
       return this.readStoredMatchingQuestion(record, options);
     }
-    if (record.question_type && record.question_type !== 'single') return null;
+    if (!isSingleChoiceQuestionType(record.question_type)) return null;
+    const choiceIds = this.parseChoiceData(record.choices)?.map(({ id }) => id);
     if (
       !Array.isArray(options) ||
       options.length < 2 ||
       options.length > 8 ||
       !options.every((option): option is string => typeof option === 'string' && option.trim().length > 0) ||
-      !this.findCorrectOption(options, record.correct_answer)
+      !this.findCorrectOption(options, record.correct_answer, choiceIds)
     ) {
       return null;
     }
@@ -638,16 +650,36 @@ export class QuestionsService {
   }
 
   private parseChoices(value: string | null): string[] | null {
+    return this.parseChoiceData(value)?.map(({ text }) => text) ?? null;
+  }
+
+  private parseChoiceData(value: string | null): ParsedChoice[] | null {
     if (!value) return null;
     try {
       const parsed: unknown = JSON.parse(value);
-      const choices = Array.isArray(parsed)
-        ? parsed
-        : parsed && typeof parsed === 'object'
-          ? Object.values(parsed)
+      if (Array.isArray(parsed)) {
+        const choices = parsed.map((choice): ParsedChoice | null => {
+          if (typeof choice === 'string') return { id: null, text: choice };
+          if (!choice || typeof choice !== 'object' || Array.isArray(choice)) return null;
+
+          const id = 'id' in choice ? choice.id : null;
+          const text = 'text' in choice ? choice.text : null;
+          if (
+            typeof text !== 'string' ||
+            !(typeof id === 'string' || typeof id === 'number')
+          ) return null;
+          return { id: String(id), text };
+        });
+        return choices.every((choice): choice is ParsedChoice => choice !== null)
+          ? choices
           : null;
-      return Array.isArray(choices) &&
-        choices.every((choice): choice is string => typeof choice === 'string')
+      }
+
+      if (!parsed || typeof parsed !== 'object') return null;
+      const choices = Object.entries(parsed).map(([id, text]): ParsedChoice | null =>
+        typeof text === 'string' ? { id, text } : null,
+      );
+      return choices.every((choice): choice is ParsedChoice => choice !== null)
         ? choices
         : null;
     } catch {
@@ -672,8 +704,17 @@ export class QuestionsService {
     return parsed;
   }
 
-  private findCorrectOption(options: string[], answer: string): string | null {
+  private findCorrectOption(
+    options: string[],
+    answer: string,
+    choiceIds: (string | null)[] = [],
+  ): string | null {
     const normalizedAnswer = answer.trim();
+    const idIndex = choiceIds.findIndex((id) =>
+      id?.trim().toLocaleLowerCase() === normalizedAnswer.toLocaleLowerCase(),
+    );
+    if (idIndex >= 0) return options[idIndex] ?? null;
+
     const exactMatch = options.find((option) => option.trim().toLocaleLowerCase() === normalizedAnswer.toLocaleLowerCase());
     if (exactMatch) return exactMatch;
 
@@ -866,8 +907,9 @@ export class QuestionsService {
     return shuffled;
   }
 
-  async findBank() {
+  async findBank(module?: string) {
     const rows = await this.prisma.questions.findMany({
+      ...(module === undefined ? {} : { where: { module } }),
       select: {
         id: true,
         module: true,
@@ -895,8 +937,9 @@ export class QuestionsService {
     }));
   }
 
-  async findUsableBank() {
+  async findUsableBank(module?: string) {
     const rows = await this.prisma.questions.findMany({
+      ...(module === undefined ? {} : { where: { module } }),
       select: {
         id: true,
         module: true,
@@ -917,7 +960,11 @@ export class QuestionsService {
       if (!question) return [];
 
       const answer = question.type === 'single'
-        ? question.options.indexOf(this.findCorrectOption(question.options, row.correct_answer) ?? '')
+        ? question.options.indexOf(this.findCorrectOption(
+            question.options,
+            row.correct_answer,
+            this.parseChoiceData(row.choices)?.map(({ id }) => id),
+          ) ?? '')
         : ['match', 'drag_drop', 'click_boxes', 'image'].includes(row.question_type ?? '')
           ? this.parseMatchAnswer(row.correct_answer, question.items.length, question.choices.length)
           : parseDragDropAnswer(row.correct_answer, row.id)?.answer;

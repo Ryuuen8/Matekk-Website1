@@ -1,4 +1,4 @@
-import { Controller, Get, Header } from '@nestjs/common';
+import { Controller, Get, Header, Query } from '@nestjs/common';
 import { QuestionsService } from './questions.service.js';
 
 // The CCNA question bank (the "Questions" table) for students taking the exams.
@@ -9,13 +9,13 @@ export class QuestionBankController {
 
   @Get()
   @Header('Cache-Control', 'private, max-age=300')
-  findBank() {
-    return this.questionsService.findBank();
+  findBank(@Query('module') module?: string) {
+    return this.questionsService.findBank(module);
   }
 
   @Get('all-usable')
   @Header('Cache-Control', 'private, max-age=300')
-  findUsableBank() {
-    return this.questionsService.findUsableBank();
+  findUsableBank(@Query('module') module?: string) {
+    return this.questionsService.findUsableBank(module);
   }
 }
