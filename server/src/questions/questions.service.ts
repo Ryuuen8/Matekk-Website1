@@ -40,6 +40,26 @@ type MatchExamQuestion = Omit<ExamQuestionBase, 'options'> & {
 };
 type ExamQuestion = SingleExamQuestion | MatchExamQuestion;
 type ParsedChoice = { id: string | null; text: string };
+type UsableBankQuestion =
+  | (ExamQuestion & {
+      bankId: number;
+      answer: number | number[];
+      explanation: string;
+      source: 'question-bank';
+    })
+  | {
+      id: number;
+      bankId: number;
+      prompt: string;
+      imageUrl: string | null;
+      type: 'multi';
+      options: string[];
+      answer: number[];
+      module: string | null;
+      topic: string | null;
+      explanation: string;
+      source: 'question-bank';
+    };
 
 function isSingleChoiceQuestionType(questionType: string | null | undefined) {
   const normalizedType = questionType?.trim().toLocaleLowerCase().replace(/[\s-]+/g, '_');
@@ -49,6 +69,13 @@ function isSingleChoiceQuestionType(questionType: string | null | undefined) {
 
 function normalizeQuestionType(questionType: string | null | undefined) {
   return questionType?.trim().toLocaleLowerCase().replace(/[\s-]+/g, '_') ?? '';
+}
+
+function isFortiOSModule(module: string | null | undefined) {
+  const normalizedModule = module?.trim().toLocaleLowerCase();
+  return normalizedModule === 'fortios' ||
+    normalizedModule === 'fortinet fortios' ||
+    normalizedModule === 'fortigate administrator';
 }
 
 function isCcnaExamModule(module: string | null) {
@@ -1047,7 +1074,23 @@ export class QuestionsService {
       orderBy: { id: 'asc' },
     });
     const signedRows = await this.signQuestionImages(rows);
-    const questions = signedRows.flatMap((row) => {
+    const questions = signedRows.flatMap<UsableBankQuestion>((row) => {
+      if (
+        isFortiOSModule(module) &&
+        isFortiOSModule(row.module) &&
+        normalizeQuestionType(row.question_type) === 'multiple_select'
+      ) {
+        const question = this.readFortiOSMultiSelectQuestion(row);
+        return question
+          ? [{
+              ...question,
+              bankId: row.id,
+              explanation: row.explanation ?? '',
+              source: 'question-bank' as const,
+            }]
+          : [];
+      }
+
       const question = this.readQuestion(row);
       if (!question) return [];
 
@@ -1074,6 +1117,45 @@ export class QuestionsService {
     });
 
     return { questions, skippedCount: rows.length - questions.length };
+  }
+
+  private readFortiOSMultiSelectQuestion(record: {
+    id: number;
+    module: string | null;
+    topic: string | null;
+    question_text: string | null;
+    choices: string | null;
+    correct_answer: string | null;
+    imageUrl: string | null;
+  }) {
+    if (!record.question_text?.trim() || !record.correct_answer?.trim()) return null;
+    const choices = this.parseChoiceData(record.choices);
+    const answerIds = record.correct_answer.split(/\s*[,;/+&]\s*/).map((answer) => answer.trim().toLocaleLowerCase());
+    if (
+      !choices ||
+      choices.length < 2 ||
+      choices.length > 8 ||
+      !choices.every((choice) => choice.text.trim() && choice.id?.trim()) ||
+      answerIds.length < 2 ||
+      answerIds.some((answer) => !answer) ||
+      new Set(answerIds).size !== answerIds.length
+    ) return null;
+
+    const answer = answerIds.map((answerId) =>
+      choices.findIndex(({ id }) => id?.trim().toLocaleLowerCase() === answerId),
+    );
+    if (answer.some((index) => index < 0) || new Set(answer).size !== answer.length) return null;
+
+    return {
+      id: record.id,
+      prompt: record.question_text.trim(),
+      imageUrl: record.imageUrl,
+      type: 'multi' as const,
+      options: choices.map(({ text }) => text),
+      answer,
+      module: record.module,
+      topic: record.topic,
+    };
   }
 
   private async signQuestionImages<T extends { imageUrl: string | null }>(rows: T[]) {

@@ -193,6 +193,42 @@ describe('QuestionsService', () => {
     expect(skippedCount).toBe(1);
   });
 
+  it('includes FortiOS multiple-select questions only in the FortiOS-filtered bank', async () => {
+    prismaMock.questions.findMany.mockResolvedValue([{
+      id: 3403,
+      module: 'Fortinet FortiOS',
+      topic: 'ECMP',
+      question_text: 'Which two statements are true?',
+      choices: JSON.stringify([
+        { id: 'A', text: 'First correct choice.' },
+        { id: 'B', text: 'Incorrect choice.' },
+        { id: 'C', text: 'Second correct choice.' },
+      ]),
+      correct_answer: 'A,C',
+      explanation: 'A and C are correct.',
+      question_type: 'multiple_select',
+      match_items: null,
+      imageUrl: null,
+    }]);
+
+    const unfiltered = await service.findUsableBank();
+    expect(unfiltered.questions).toHaveLength(0);
+    expect(unfiltered.skippedCount).toBe(1);
+
+    const fortiOS = await service.findUsableBank('Fortinet FortiOS');
+    expect(fortiOS.questions).toEqual([
+      expect.objectContaining({
+        bankId: 3403,
+        module: 'Fortinet FortiOS',
+        type: 'multi',
+        options: ['First correct choice.', 'Incorrect choice.', 'Second correct choice.'],
+        answer: [0, 2],
+        explanation: 'A and C are correct.',
+      }),
+    ]);
+    expect(fortiOS.skippedCount).toBe(0);
+  });
+
   it('loads usable questions for new module names without a module allowlist', async () => {
     prismaMock.questions.findMany.mockResolvedValue([{
       id: 2401,
