@@ -31,6 +31,7 @@ export const envValidationSchema = Joi.object({
         otherwise: Joi.string().default(''),
     }),
     OTP_SECRET: Joi.string().min(32).optional(),
+    RECAPTCHA_SECRET_KEY: Joi.string().trim().min(1).optional(),
     EMAILJS_OTP_TEMPLATE_ID: Joi.string().trim().optional(),
     SUPABASE_URL: Joi.string().uri().required(),
     SUPABASE_SERVICE_ROLE_KEY: Joi.string().trim().min(1).required(),
