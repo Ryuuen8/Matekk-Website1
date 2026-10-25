@@ -3,6 +3,21 @@
 This log summarizes the frontend and backend changes completed during the
 2026-10-17 and 2026-10-18 work sessions.
 
+## 2026-10-25
+
+### CompTIA question bank
+
+- Included CompTIA multiple-select and fill-in-the-blank questions in the usable
+  bank, and retained simulations, unsupported formats, and incomplete answer
+  keys as ungraded review items instead of dropping them.
+- Preserved signed exhibit image URLs on review items so CompTIA exams can show
+  every mapped image.
+- Added regression tests for CompTIA question-type handling and image links.
+
+### Verification
+
+- Backend question-service tests, lint, and build.
+
 ## 2026-10-18
 
 ### Offline learning

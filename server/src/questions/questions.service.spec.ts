@@ -140,7 +140,7 @@ describe('QuestionsService', () => {
     expect(service).toBeDefined();
   });
 
-  it('filters usable questions by module and normalizes Supabase multiple-choice records', async () => {
+  it('filters CompTIA questions by module and normalizes multiple-choice records', async () => {
     prismaMock.questions.findMany.mockResolvedValue([
       {
         id: 1955,
@@ -182,7 +182,7 @@ describe('QuestionsService', () => {
       where: { module: { equals: 'comptia network+', mode: 'insensitive' } },
       orderBy: { id: 'asc' },
     }));
-    expect(questions).toHaveLength(1);
+    expect(questions).toHaveLength(2);
     expect(questions[0]).toMatchObject({
       bankId: 1955,
       module: 'CompTIA Network+',
@@ -190,7 +190,102 @@ describe('QuestionsService', () => {
       options: ['First option', 'Second option', 'Third option', 'Fourth option'],
       answer: 2,
     });
-    expect(skippedCount).toBe(1);
+    expect(questions[1]).toMatchObject({
+      bankId: 1956,
+      module: 'CompTIA Network+',
+      type: 'multi',
+      options: ['First option', 'Second option'],
+      answer: [0, 1],
+    });
+    expect(skippedCount).toBe(0);
+  });
+
+  it('keeps CompTIA fill-in, simulation, and unscoreable questions with their images', async () => {
+    storageMock.createSignedQuestionImageUrls.mockImplementation(async (paths: string[]) =>
+      new Map(paths.map((path) => [path, `https://images.example/${path}`])),
+    );
+    prismaMock.questions.findMany.mockResolvedValue([
+      {
+        id: 1957,
+        module: 'CompTIA Network+',
+        topic: 'Troubleshooting',
+        question_text: 'Select both correct answers.',
+        choices: JSON.stringify([
+          { id: 'A', text: 'First correct choice' },
+          { id: 'B', text: 'Second correct choice' },
+          { id: 'C', text: 'Incorrect choice' },
+        ]),
+        correct_answer: 'A,C',
+        explanation: 'Two answers are correct.',
+        question_type: 'multiple_select',
+        match_items: null,
+        imageUrl: null,
+      },
+      {
+        id: 1958,
+        module: 'CompTIA Network+',
+        topic: 'Networking Concepts',
+        question_text: 'Complete the protocol name: ______.',
+        choices: null,
+        correct_answer: '802.1X',
+        explanation: '802.1X provides port-based authentication.',
+        question_type: 'fill_in_blank',
+        match_items: null,
+        imageUrl: null,
+      },
+      {
+        id: 1959,
+        module: 'CompTIA Network+',
+        topic: 'Network Implementation',
+        question_text: 'Configure the switch using the provided exhibit.',
+        choices: null,
+        correct_answer: null,
+        explanation: 'Review the switch configuration exhibit.',
+        question_type: 'simulation',
+        match_items: null,
+        imageUrl: 'questions/n10_q19.png',
+      },
+      {
+        id: 1960,
+        module: 'CompTIA Network+',
+        topic: 'Operations',
+        question_text: 'Choose the best response.',
+        choices: JSON.stringify([
+          { id: 'A', text: 'First choice' },
+          { id: 'B', text: 'Second choice' },
+        ]),
+        correct_answer: 'Z',
+        explanation: 'The source answer key is incomplete.',
+        question_type: 'multiple_choice',
+        match_items: null,
+        imageUrl: null,
+      },
+    ]);
+
+    const { questions, skippedCount } = await service.findUsableBank('CompTIA Network+');
+
+    expect(questions).toHaveLength(4);
+    expect(questions[0]).toMatchObject({
+      bankId: 1957,
+      type: 'multi',
+      answer: [0, 2],
+    });
+    expect(questions[1]).toMatchObject({
+      bankId: 1958,
+      type: 'text',
+      answer: '802.1X',
+    });
+    expect(questions[2]).toMatchObject({
+      bankId: 1959,
+      type: 'study',
+      imageUrl: 'https://images.example/questions/n10_q19.png',
+    });
+    expect(questions[3]).toMatchObject({
+      bankId: 1960,
+      type: 'study',
+      studyNote: expect.stringContaining('cannot be rendered and scored safely'),
+    });
+    expect(skippedCount).toBe(0);
   });
 
   it('includes FortiOS multiple-select questions only in the FortiOS-filtered bank', async () => {
