@@ -15,7 +15,6 @@ type RecaptchaVerificationResponse = {
 export type RecaptchaAction = 'contact' | 'training_inquiry' | 'solutions_inquiry';
 
 const MINIMUM_RECAPTCHA_SCORE = 0.5;
-
 @Injectable()
 export class CaptchaService {
   constructor(private readonly config: ConfigService) {}

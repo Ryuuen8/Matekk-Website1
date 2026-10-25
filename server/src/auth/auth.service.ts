@@ -9,6 +9,7 @@ import { RegisterDto } from './dto/register.dto.js';
 import { UpdateProfileDto } from './dto/profile.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { ProfilePhotoDto } from './dto/profile-photo.dto.js';
+import { EnrollmentRequestDto } from './dto/enrollment-request.dto.js';
 import { EmailService } from '../email/email.service.js';
 import { OtpService } from './otp/otp.service.js';
 
@@ -35,6 +36,80 @@ export class AuthService {
             },
             orderBy: [{ training: { name: 'asc' } }, { name: 'asc' }],
         });
+    }
+
+    async createEnrollmentRequest(userId: number, dto: EnrollmentRequestDto) {
+        const email = dto.email.trim().toLowerCase();
+        const phone = dto.phone.trim();
+        const [user, program] = await Promise.all([
+            this.prisma.users.findUnique({
+                where: { id: userId },
+                select: {
+                    username: true,
+                    first_name: true,
+                    last_name: true,
+                    role: true,
+                },
+            }),
+            this.prisma.program.findUnique({
+                where: { id: dto.programId },
+                include: {
+                    training: { select: { name: true } },
+                    parent: {
+                        include: { training: { select: { name: true } } },
+                    },
+                },
+            }),
+        ]);
+        if (!user) throw new UnauthorizedException();
+        if (user.role.trim().toLowerCase() === 'admin') {
+            throw new BadRequestException('Administrators cannot submit student enrollment requests.');
+        }
+        if (!program) throw new BadRequestException('Select an available program.');
+
+        const enrollments = await this.prisma.enrollment.findMany({
+            where: { userId },
+            include: { program: { select: { id: true, parentId: true } } },
+        });
+        const alreadyEnrolled = enrollments.some(({ program: enrolledProgram }) =>
+            enrolledProgram.id === program.id
+            || (program.parentId === null && enrolledProgram.parentId === program.id)
+            || (program.parentId !== null && enrolledProgram.id === program.parentId),
+        );
+        if (alreadyEnrolled) {
+            throw new ConflictException('You are already enrolled in this program.');
+        }
+
+        const projectDescription = `Account ID: ${userId}; Program ID: ${program.id}`;
+        const existingRequest = await this.prisma.inquires.findFirst({
+            where: {
+                inquiry_type: 'Enrollment Request',
+                project_desc: projectDescription,
+                status: true,
+            },
+            select: { id: true },
+        });
+        if (existingRequest) {
+            throw new ConflictException('You already have a pending request for this program.');
+        }
+
+        const courseName = program.parent
+            ? `${program.parent.name} - ${program.name}`
+            : program.name;
+        const fullName = `${user.first_name} ${user.last_name}`.trim() || user.username;
+        await this.prisma.inquires.create({
+            data: {
+                inquiry_type: 'Enrollment Request',
+                name: fullName,
+                email,
+                phone,
+                subject: `Enrollment request: ${courseName}`,
+                course: courseName,
+                message: `${fullName} requested enrollment in ${courseName}.`,
+                project_desc: projectDescription,
+            },
+        });
+        return { message: 'Enrollment request submitted for administrator review.' };
     }
 
     async requestRegistrationEmailOtp(email: string): Promise<boolean> {

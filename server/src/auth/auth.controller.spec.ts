@@ -3,6 +3,7 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { LoginRateLimitService } from './login-rate-limit.service.js';
 import { RateLimitService } from './rate-limit.service.js';
+import { ConfigService } from '@nestjs/config';
 import {
   ACCESS_TOKEN_COOKIE,
   accessTokenCookieOptions,
@@ -15,6 +16,7 @@ describe('AuthController', () => {
   const invalidateSession = vi.fn();
   const consume = vi.fn();
   const consumeOtpRateLimit = vi.fn();
+  const getConfig = vi.fn();
   const requestRegistrationEmailOtp = vi.fn();
   const verifyRegistrationEmail = vi.fn();
   const getProfile = vi.fn();
@@ -24,6 +26,7 @@ describe('AuthController', () => {
   const removeProfilePhoto = vi.fn();
   const changePassword = vi.fn();
   const getLearningHistory = vi.fn();
+  const createEnrollmentRequest = vi.fn();
 
   beforeEach(async () => {
     signIn.mockReset();
@@ -31,6 +34,7 @@ describe('AuthController', () => {
     invalidateSession.mockReset();
     consume.mockReset();
     consumeOtpRateLimit.mockReset();
+    getConfig.mockReset();
     requestRegistrationEmailOtp.mockReset();
     verifyRegistrationEmail.mockReset();
     getProfile.mockReset();
@@ -40,11 +44,13 @@ describe('AuthController', () => {
     removeProfilePhoto.mockReset();
     changePassword.mockReset();
     getLearningHistory.mockReset();
+    createEnrollmentRequest.mockReset();
     signIn.mockResolvedValue({ access_token: 'signed-token' });
     verifySignInOtp.mockResolvedValue({ access_token: 'signed-token' });
     invalidateSession.mockResolvedValue(undefined);
     consume.mockResolvedValue(true);
     consumeOtpRateLimit.mockResolvedValue(undefined);
+    getConfig.mockReturnValue('246810');
     requestRegistrationEmailOtp.mockResolvedValue(true);
     verifyRegistrationEmail.mockResolvedValue({ verificationToken: 'proof' });
     getProfile.mockResolvedValue({ userId: 12 });
@@ -54,6 +60,7 @@ describe('AuthController', () => {
     removeProfilePhoto.mockResolvedValue({ message: 'Profile photo removed successfully.' });
     changePassword.mockResolvedValue({ message: 'Password updated successfully.' });
     getLearningHistory.mockResolvedValue([]);
+    createEnrollmentRequest.mockResolvedValue({ message: 'Enrollment request submitted for administrator review.' });
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [
@@ -72,10 +79,12 @@ describe('AuthController', () => {
             removeProfilePhoto,
             changePassword,
             getLearningHistory,
+            createEnrollmentRequest,
           },
         },
         { provide: LoginRateLimitService, useValue: { consume } },
         { provide: RateLimitService, useValue: { consume: consumeOtpRateLimit } },
+        { provide: ConfigService, useValue: { get: getConfig } },
       ],
     }).compile();
 
@@ -84,6 +93,16 @@ describe('AuthController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  it('creates an enrollment request for the authenticated user', async () => {
+    const request = { user: { userId: 12 } } as never;
+    const dto = { programId: 4, email: 'student@example.com', phone: '09171234567' };
+
+    await expect(controller.createEnrollmentRequest(request, dto)).resolves.toEqual({
+      message: 'Enrollment request submitted for administrator review.',
+    });
+    expect(createEnrollmentRequest).toHaveBeenCalledWith(12, dto);
   });
 
   it('rate-limits and sends registration email verification codes', async () => {
@@ -154,6 +173,44 @@ describe('AuthController', () => {
       'signed-token',
       expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
     );
+  });
+
+  it('allows an administrator to verify the configured offline module PIN', async () => {
+    const result = await controller.verifyOfflineModulePin(
+      { pin: '246810' },
+      { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' }, user: { role: 'Admin' } } as never,
+    );
+
+    expect(result).toEqual({ message: 'Offline PIN verified.' });
+    expect(consume).toHaveBeenCalledWith('192.0.2.1', 'offline-module-pin');
+    expect(JSON.stringify(result)).not.toContain('246810');
+  });
+
+  it('rejects invalid PINs and leaves offline setup unavailable when no shared PIN is configured', async () => {
+    await expect(controller.verifyOfflineModulePin(
+      { pin: '1234' },
+      { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' }, user: { role: 'admin' } } as never,
+    )).rejects.toThrow('The shared offline PIN is incorrect.');
+
+    getConfig.mockReturnValue(undefined);
+    await expect(controller.verifyOfflineModulePin(
+      { pin: '246810' },
+      { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' }, user: { role: 'admin' } } as never,
+    )).rejects.toThrow('Offline module PIN is not configured.');
+  });
+
+  it('restricts offline PIN provisioning to administrators and rate-limits attempts', async () => {
+    await expect(controller.verifyOfflineModulePin(
+      { pin: '246810' },
+      { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' }, user: { role: 'Student' } } as never,
+    )).rejects.toThrow('Only administrators can set up offline module access.');
+    expect(consume).not.toHaveBeenCalled();
+
+    consume.mockResolvedValue(false);
+    await expect(controller.verifyOfflineModulePin(
+      { pin: '246810' },
+      { ip: '192.0.2.1', socket: { remoteAddress: '192.0.2.1' }, user: { role: 'admin' } } as never,
+    )).rejects.toThrow('Too many offline PIN attempts.');
   });
 
   it('allows production session cookies to be sent cross-origin over HTTPS', () => {

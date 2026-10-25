@@ -35,6 +35,10 @@ $ npm install
 
 Prisma Client is generated automatically before building or starting the server.
 Make sure `DATABASE_URL` is set in `server/.env`.
+Configure `RECAPTCHA_SECRET_KEY` on the backend and the matching
+`VITE_RECAPTCHA_SITE_KEY` on the frontend for the deployed domain. Keep the
+secret key only in backend environment settings. Local development and tests
+use Google's public test key; never deploy test keys.
 Apply pending database migrations with `npx prisma migrate deploy` before
 deploying server code that depends on schema changes. Session-version tracking
 uses a database migration, and existing sign-in cookies become invalid when
@@ -92,6 +96,27 @@ Configure `SUPABASE_URL` with the project API URL and
 `SUPABASE_SERVICE_ROLE_KEY` with the server-only service-role key. Store image
 objects under `questions/`; the question-bank and exam endpoints return
 time-limited signed image URLs.
+To enable the administrator's offline-module setup, configure
+`OFFLINE_MODULE_PIN` as a shared four-to-six digit PIN. The authenticated
+administrator verifies it online at `/auth/offline-pin/verify`; only a
+derived verifier is stored in the browser for later offline unlocks. The
+endpoint is rate-limited and does not return the configured PIN.
+
+Exam attempts can use the standard `short`, `medium`, and `long` formats for
+the legacy CCNA bank. New program exams can use the same attempt, grading, and
+gradebook flow by starting an attempt with both `module` and `programKey`
+query parameters, for example:
+
+```text
+POST /questions/exams/short/start?module=CompTIA%20Network%2B&programKey=comptia-network-plus
+```
+
+The backend verifies enrollment and that the module belongs to the requested
+program, selects randomized valid questions from that module, and persists
+the program/module scope with the attempt. Resume and submit use the returned
+attempt ID and the same exam format; a submitted result is recorded under the
+persisted program key. Module exams use the available question types without
+the CCNA-specific per-50 question mix.
 
 ```bash
 # development

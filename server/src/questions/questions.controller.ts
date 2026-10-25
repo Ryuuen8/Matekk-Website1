@@ -5,6 +5,7 @@ import {
   Header,
   Param,
   Post,
+  Query,
   Request,
   UseGuards,
   UsePipes,
@@ -37,8 +38,15 @@ export class QuestionsController {
   startExam(
     @Param('examKey') examKey: string,
     @Request() request: ExpressRequest & { user: { userId: number } },
+    @Query('module') moduleName?: string,
+    @Query('programKey') programKey?: string,
   ) {
-    return this.questionsService.startExam(examKey, request.user.userId);
+    return this.questionsService.startExam(
+      examKey,
+      request.user.userId,
+      moduleName,
+      programKey,
+    );
   }
 
   @Get('exams/:examKey/attempt/:attemptId')

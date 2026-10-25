@@ -130,6 +130,40 @@ describe('UsersService', () => {
     ]);
   });
 
+  it('includes legacy program categories alongside normalized enrollments', async () => {
+    findMany.mockResolvedValue([
+      {
+        id: 48,
+        username: 'mixed-enrollment-user',
+        email: 'mixed@example.com',
+        role: 'Student',
+        active_status: true,
+        programs_enrolled: 'Cisco, Palo Alto, CompTIA, Cisco',
+        enrollments: [
+          {
+            program: {
+              name: 'CCNA',
+              parentId: null,
+              modules: [{ name: 'CCNA Automation' }],
+            },
+          },
+          {
+            program: {
+              name: 'Network+',
+              parentId: 2,
+              modules: [],
+            },
+          },
+        ],
+      },
+    ]);
+
+    const [result] = await service.findAll();
+    expect(result.module_enrolled).toBe(
+      'CCNA, CCNA Automation, Network+, Cisco, Palo Alto, CompTIA',
+    );
+  });
+
   it('uses the legacy enrolled-program field when no enrollment relation exists', async () => {
     findMany.mockResolvedValue([
       {

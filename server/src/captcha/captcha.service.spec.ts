@@ -71,6 +71,16 @@ describe('CaptchaService', () => {
     await expect(service.verify('captcha-token', 'contact')).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects a token when Google does not accept it', async () => {
+    getConfig.mockReturnValue('private-secret');
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      success: false,
+      action: 'contact',
+      score: 0.9,
+    }), { status: 200 }));
+    await expect(service.verify('invalid-token', 'contact')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('fails explicitly when the secret is missing', async () => {
     getConfig.mockReturnValue(undefined);
 
