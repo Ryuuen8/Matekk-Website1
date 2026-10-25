@@ -28,7 +28,7 @@ export default defineConfig({
           'react-icons': ['react-icons'],
           'lucide-react': ['lucide-react'],
           'emailjs': ['@emailjs/browser', 'emailjs-com'],
-          'captcha': ['@hcaptcha/react-hcaptcha', 'react-google-recaptcha'],
+          'captcha': ['@hcaptcha/react-hcaptcha'],
           'utils': ['dompurify'],
         },
         
