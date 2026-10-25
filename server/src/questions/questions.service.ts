@@ -39,6 +39,34 @@ type MatchExamQuestion = Omit<ExamQuestionBase, 'options'> & {
   groupSizes?: number[];
 };
 type ExamQuestion = SingleExamQuestion | MatchExamQuestion;
+type CompTIAMultiQuestion = {
+  id: number;
+  prompt: string;
+  imageUrl: string | null;
+  type: 'multi';
+  options: string[];
+  answer: number[];
+  module: string | null;
+  topic: string | null;
+};
+type CompTIATextQuestion = {
+  id: number;
+  prompt: string;
+  imageUrl: string | null;
+  type: 'text';
+  answer: string;
+  module: string | null;
+  topic: string | null;
+};
+type CompTIAStudyQuestion = {
+  id: number;
+  prompt: string;
+  imageUrl: string | null;
+  type: 'study';
+  studyNote: string;
+  module: string | null;
+  topic: string | null;
+};
 type ParsedChoice = { id: string | null; text: string };
 type UsableBankQuestion =
   | (ExamQuestion & {
@@ -47,19 +75,16 @@ type UsableBankQuestion =
       explanation: string;
       source: 'question-bank';
     })
-  | {
-      id: number;
+  | (CompTIAMultiQuestion & {
       bankId: number;
-      prompt: string;
-      imageUrl: string | null;
-      type: 'multi';
-      options: string[];
-      answer: number[];
-      module: string | null;
-      topic: string | null;
       explanation: string;
       source: 'question-bank';
-    };
+    })
+  | ((CompTIATextQuestion | CompTIAStudyQuestion) & {
+      bankId: number;
+      explanation: string;
+      source: 'question-bank';
+    });
 
 function isSingleChoiceQuestionType(questionType: string | null | undefined) {
   const normalizedType = questionType?.trim().toLocaleLowerCase().replace(/[\s-]+/g, '_');
@@ -76,6 +101,10 @@ function isFortiOSModule(module: string | null | undefined) {
   return normalizedModule === 'fortios' ||
     normalizedModule === 'fortinet fortios' ||
     normalizedModule === 'fortigate administrator';
+}
+
+function isCompTIAModule(module: string | null | undefined) {
+  return module?.trim().toLocaleLowerCase().startsWith('comptia ') ?? false;
 }
 
 function isCcnaExamModule(module: string | null) {
@@ -1075,6 +1104,7 @@ export class QuestionsService {
     });
     const signedRows = await this.signQuestionImages(rows);
     const questions = signedRows.flatMap<UsableBankQuestion>((row) => {
+      const isCompTIAQuestion = isCompTIAModule(row.module);
       if (
         isFortiOSModule(module) &&
         isFortiOSModule(row.module) &&
@@ -1091,32 +1121,179 @@ export class QuestionsService {
           : [];
       }
 
-      const question = this.readQuestion(row);
-      if (!question) return [];
+      const compTIAMultiQuestion = isCompTIAQuestion &&
+        normalizeQuestionType(row.question_type) === 'multiple_select'
+        ? this.readCompTIAMultiSelectQuestion(row)
+        : null;
+      if (compTIAMultiQuestion) {
+        return [{
+          ...compTIAMultiQuestion,
+          bankId: row.id,
+          explanation: row.explanation,
+          source: 'question-bank' as const,
+        }];
+      }
 
-      const answer = question.type === 'single'
-        ? question.options.indexOf(this.findCorrectOption(
-            question.options,
+      const compTIAQuestion = isCompTIAQuestion ? this.readCompTIAQuestion(row) : null;
+      const question = this.readQuestion(row);
+      const resolvedQuestion = compTIAQuestion ?? question;
+      if (!resolvedQuestion) {
+        return isCompTIAQuestion
+          ? [{
+              ...this.createCompTIAStudyQuestion(
+                row,
+                'This item is included for review because its prompt, choices, or question type cannot be rendered and scored safely.',
+              ),
+              bankId: row.id,
+              explanation: row.explanation,
+              source: 'question-bank' as const,
+            }]
+          : [];
+      }
+
+      const questionMetadata = {
+        bankId: row.id,
+        explanation: row.explanation,
+        source: 'question-bank' as const,
+      };
+
+      if (resolvedQuestion.type === 'text' || resolvedQuestion.type === 'study') {
+        return [{ ...resolvedQuestion, ...questionMetadata }];
+      }
+
+      const answer = resolvedQuestion.type === 'single'
+        ? resolvedQuestion.options.indexOf(this.findCorrectOption(
+            resolvedQuestion.options,
             row.correct_answer,
             this.parseChoiceData(row.choices)?.map(({ id }) => id),
           ) ?? '')
         : isSingleChoiceQuestionType(row.question_type)
           ? parseDragDropAnswer(row.correct_answer, row.id)?.answer
-          : this.parseMatchAnswer(row.correct_answer, question.items.length, question.choices.length);
+          : this.parseMatchAnswer(row.correct_answer, resolvedQuestion.items.length, resolvedQuestion.choices.length);
       if (answer === undefined || answer === -1 || (Array.isArray(answer) && answer.length === 0)) {
-        return [];
+        return isCompTIAQuestion
+          ? [{
+              ...this.createCompTIAStudyQuestion(
+                row,
+                'This question is included for review but cannot be scored because its answer choices or answer key are incomplete.',
+              ),
+              ...questionMetadata,
+            }]
+          : [];
       }
 
       return [{
-        ...question,
-        bankId: row.id,
+        ...resolvedQuestion,
+        ...questionMetadata,
         answer,
-        explanation: row.explanation,
-        source: 'question-bank',
       }];
     });
 
     return { questions, skippedCount: rows.length - questions.length };
+  }
+
+  private readCompTIAMultiSelectQuestion(record: {
+    id: number;
+    module: string | null;
+    topic: string | null;
+    question_text: string | null;
+    choices: string | null;
+    correct_answer: string | null;
+    question_type?: string | null;
+    imageUrl?: string | null;
+  }): CompTIAMultiQuestion | null {
+    if (normalizeQuestionType(record.question_type) !== 'multiple_select') return null;
+    const choices = this.parseChoiceData(record.choices);
+    const answerIds = record.correct_answer?.split(/\s*[,;/+&]\s*/).map((answer) => answer.trim().toLocaleLowerCase());
+    if (
+      !record.question_text?.trim() ||
+      !choices ||
+      choices.length < 2 ||
+      choices.length > 8 ||
+      !choices.every((choice) => choice.text.trim()) ||
+      !answerIds ||
+      answerIds.length < 2 ||
+      answerIds.some((answer) => !answer)
+    ) return null;
+
+    const answer = answerIds.map((answerId) =>
+      choices.findIndex(({ id }) => id?.trim().toLocaleLowerCase() === answerId),
+    );
+    if (answer.some((index) => index < 0) || new Set(answer).size !== answer.length) return null;
+
+    return {
+      id: record.id,
+      prompt: record.question_text.trim(),
+      imageUrl: record.imageUrl ?? null,
+      type: 'multi',
+      options: choices.map(({ text }) => text),
+      answer,
+      module: record.module,
+      topic: record.topic,
+    };
+  }
+
+  private createCompTIAStudyQuestion(
+    record: {
+      id: number;
+      module: string | null;
+      topic: string | null;
+      question_text: string | null;
+      imageUrl?: string | null;
+    },
+    studyNote: string,
+  ): CompTIAStudyQuestion {
+    return {
+      id: record.id,
+      prompt: record.question_text?.trim() || 'This question has no prompt in the question bank.',
+      imageUrl: record.imageUrl ?? null,
+      type: 'study',
+      studyNote,
+      module: record.module,
+      topic: record.topic,
+    };
+  }
+
+  private readCompTIAQuestion(record: {
+    id: number;
+    module: string | null;
+    topic: string | null;
+    question_text: string | null;
+    choices: string | null;
+    correct_answer: string | null;
+    question_type?: string | null;
+    imageUrl?: string | null;
+  }): CompTIATextQuestion | CompTIAStudyQuestion | null {
+    const normalizedType = normalizeQuestionType(record.question_type);
+    if (normalizedType === 'fill_in_blank' || normalizedType === 'fill_in_the_blank') {
+      return record.question_text?.trim() && record.correct_answer?.trim()
+        ? {
+            id: record.id,
+            prompt: record.question_text.trim(),
+            imageUrl: record.imageUrl ?? null,
+            type: 'text',
+            answer: record.correct_answer.trim(),
+            module: record.module,
+            topic: record.topic,
+          }
+        : this.createCompTIAStudyQuestion(
+            record,
+            'This fill-in-the-blank item has no answer key and cannot be scored.',
+          );
+    }
+    if (normalizedType === 'simulation') {
+      return this.createCompTIAStudyQuestion(
+        record,
+        'Simulation item: use the scenario as a guided review. The question bank does not contain an interactive simulation or a reliable score key for this item.',
+      );
+    }
+    if (normalizedType && !isSingleChoiceQuestionType(normalizedType)) {
+      return this.createCompTIAStudyQuestion(
+        record,
+        `This ${record.question_type} item is included for review but is not currently scoreable.`,
+      );
+    }
+    return null;
   }
 
   private readFortiOSMultiSelectQuestion(record: {
