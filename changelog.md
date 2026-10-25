@@ -5,6 +5,21 @@ This log summarizes the frontend and backend changes completed during the
 
 ## 2026-10-25
 
+### Homepage inquiry CAPTCHA
+
+- `72b5fb2` — Added server-side Google reCAPTCHA verification for contact and
+  training/ICT inquiry submissions; invalid or unverifiable tokens cannot be
+  submitted as inquiries.
+- `c6205ef` — Added tests for successful verification, rejected tokens, missing
+  configuration, and Google verification service failures.
+- Documented the production secret and local-only Google test keys.
+
+### Verification
+
+- 20 targeted backend tests passed; backend build and targeted lint passed.
+
+## 2026-10-25
+
 ### CompTIA question bank
 
 - `9674168` — Included CompTIA multiple-select and fill-in-the-blank questions in the usable
