@@ -1,6 +1,10 @@
 import { IsEmail, IsIn, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 
 export class CreateInquirtDto {
+    @IsString()
+    @Length(1, 4096)
+    captchaToken: string;
+
     @IsIn(['Training Inquiry', 'ICT Solutions Inquiry'])
     inquiry_type: 'Training Inquiry' | 'ICT Solutions Inquiry';
 

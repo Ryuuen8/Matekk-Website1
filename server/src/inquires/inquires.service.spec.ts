@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { CaptchaService } from '../captcha/captcha.service.js';
 import { InquiresService } from './inquires.service.js';
 
 describe('InquiresService', () => {
@@ -8,17 +9,22 @@ describe('InquiresService', () => {
   const findUnique = vi.fn();
   const updateMany = vi.fn();
   const transaction = vi.fn();
+  const createInquiry = vi.fn();
+  const verifyCaptcha = vi.fn();
 
   beforeEach(async () => {
     updateMany.mockReset();
     findUnique.mockReset();
     transaction.mockReset();
+    createInquiry.mockReset();
+    verifyCaptcha.mockReset();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InquiresService,
+        { provide: CaptchaService, useValue: { verify: verifyCaptcha } },
         {
           provide: PrismaService,
-          useValue: { inquires: { findUnique, updateMany }, $transaction: transaction },
+          useValue: { inquires: { create: createInquiry, findUnique, updateMany }, $transaction: transaction },
         },
       ],
     }).compile();
@@ -28,6 +34,47 @@ describe('InquiresService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('verifies CAPTCHA before storing an inquiry and omits the token from persisted data', async () => {
+    createInquiry.mockResolvedValue({ id: 1 });
+
+    await expect(service.create({
+      captchaToken: 'verified-token',
+      inquiry_type: 'Training Inquiry',
+      name: 'A learner',
+      email: 'learner@example.com',
+      phone: '09171234567',
+      subject: 'Training',
+      message: 'Please send details.',
+    })).resolves.toEqual({ id: 1 });
+
+    expect(verifyCaptcha).toHaveBeenCalledWith('verified-token');
+    expect(createInquiry).toHaveBeenCalledWith({
+      data: {
+        inquiry_type: 'Training Inquiry',
+        name: 'A learner',
+        email: 'learner@example.com',
+        phone: '09171234567',
+        subject: 'Training',
+        message: 'Please send details.',
+      },
+    });
+  });
+
+  it('does not store an inquiry if CAPTCHA verification fails', async () => {
+    verifyCaptcha.mockRejectedValue(new Error('CAPTCHA rejected'));
+
+    await expect(service.create({
+      captchaToken: 'invalid-token',
+      inquiry_type: 'Training Inquiry',
+      name: 'A learner',
+      email: 'learner@example.com',
+      phone: '09171234567',
+      subject: 'Training',
+      message: 'Please send details.',
+    })).rejects.toThrow('CAPTCHA rejected');
+    expect(createInquiry).not.toHaveBeenCalled();
   });
 
   it('accepts an inquiry by marking it resolved', async () => {

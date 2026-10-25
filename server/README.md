@@ -35,6 +35,10 @@ $ npm install
 
 Prisma Client is generated automatically before building or starting the server.
 Make sure `DATABASE_URL` is set in `server/.env`.
+Configure `RECAPTCHA_SECRET_KEY` on the backend and the matching
+`VITE_RECAPTCHA_SITE_KEY` on the frontend for the deployed domain. Keep the
+secret key only in backend environment settings. Local development and tests
+use Google's public test key; never deploy test keys.
 Apply pending database migrations with `npx prisma migrate deploy` before
 deploying server code that depends on schema changes. Session-version tracking
 uses a database migration, and existing sign-in cookies become invalid when

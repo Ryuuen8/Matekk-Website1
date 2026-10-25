@@ -7,6 +7,13 @@ const requiredSupabaseConfig = {
 };
 
 describe('environment validation', () => {
+    it('uses Google test CAPTCHA credentials outside production', () => {
+        const { error, value } = envValidationSchema.validate(requiredSupabaseConfig);
+
+        expect(error).toBeUndefined();
+        expect(value.RECAPTCHA_SECRET_KEY).toBe('6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuZZevZx9c5');
+    });
+
     it('provides a development JWT secret and empty CORS allowlist by default', () => {
         const { error, value } = envValidationSchema.validate(requiredSupabaseConfig);
 
@@ -36,6 +43,18 @@ describe('environment validation', () => {
 
         expect(error).toBeUndefined();
         expect(value.CORS_ORIGINS).toBe(origins);
+    });
+
+    it('allows production to start without CAPTCHA credentials but keeps form submissions disabled', () => {
+        const { error, value } = envValidationSchema.validate({
+            ...requiredSupabaseConfig,
+            NODE_ENV: 'production',
+            JWT_SECRET: 'a'.repeat(32),
+            CORS_ORIGINS: 'https://academy.example.com',
+        });
+
+        expect(error).toBeUndefined();
+        expect(value.RECAPTCHA_SECRET_KEY).toBeUndefined();
     });
 
     it('rejects production CORS values that are not HTTPS origins', () => {

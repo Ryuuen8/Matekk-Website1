@@ -6,13 +6,19 @@ import {
 } from '@nestjs/common';
 import { CreateInquirtDto } from './dto/create-inquirt.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { CaptchaService } from '../captcha/captcha.service.js';
 
 @Injectable()
 export class InquiresService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly captchaService: CaptchaService,
+    ) { }
 
-    create(data: CreateInquirtDto) {
-        return this.prisma.inquires.create({ data });
+    async create(data: CreateInquirtDto) {
+        const { captchaToken, ...inquiry } = data;
+        await this.captchaService.verify(captchaToken);
+        return this.prisma.inquires.create({ data: inquiry });
     }
 
     findAll() {
