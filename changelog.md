@@ -7,7 +7,7 @@ This log summarizes the frontend and backend changes completed during the
 
 ### CompTIA question bank
 
-- Included CompTIA multiple-select and fill-in-the-blank questions in the usable
+- `9674168` — Included CompTIA multiple-select and fill-in-the-blank questions in the usable
   bank, and retained simulations, unsupported formats, and incomplete answer
   keys as ungraded review items instead of dropping them.
 - Preserved signed exhibit image URLs on review items so CompTIA exams can show
