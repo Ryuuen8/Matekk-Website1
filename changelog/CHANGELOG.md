@@ -4,6 +4,14 @@
 
 Commits included in this push:
 
+- `192a90a` — Routed login verification emails through the dedicated EmailJS OTP template with the documented code and expiry parameters.
+
+Validation before push: OTP email and OTP service tests passed (10 tests); targeted oxlint and Nest compile passed; Git whitespace checks passed.
+
+## 2026-11-07 — `main`
+
+Commits included in this push:
+
 - `7e3a94e` — Reverted the dedicated OTP EmailJS template change and restored the previous OTP email parameters.
 
 Validation before push: OTP service tests, targeted oxlint, and Git whitespace checks passed.
