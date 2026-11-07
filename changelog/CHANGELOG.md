@@ -4,6 +4,14 @@
 
 Commits included in this push:
 
+- `4db5d6c` — Restored backend source to the pre-login-issue state at `9431431`; the website source was already at its pre-issue state.
+
+Validation before push: verified backend application source matches `9431431`; OTP service tests, oxlint, Nest compile, and Git whitespace checks passed.
+
+## 2026-11-07 — `main`
+
+Commits included in this push:
+
 - `93b7ff2` — Restored the dedicated EmailJS OTP template integration after the backend rollback; persistent offline PIN unlock was already restored in the website repo.
 
 Validation before push: OTP email and OTP service tests passed (10 tests); targeted oxlint and Nest compile passed; Git whitespace checks passed.
