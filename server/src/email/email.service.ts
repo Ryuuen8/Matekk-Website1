@@ -96,14 +96,19 @@ export class EmailService {
             throw new InternalServerErrorException('Could not send email');
         }
 
-        await this.callEmailJs(this.getRequiredConfig('EMAILJS_OTP_TEMPLATE_ID'), {
+        const emailBody =
+            `Use this code to continue:\n\n${code}\n\n` +
+            `It expires in ${expiresInMinutes} minutes and can only be used once. ` +
+            `If you didn't request it, you can ignore this email.`;
+
+        await this.callEmailJs(this.getRequiredConfig('EMAILJS_USER_TEMPLATE_ID'), {
             email,
             to_email: email,
             to_name: 'there',
             email_title: 'Your verification code',
-            otp_code: code,
-            expires_in_minutes: String(expiresInMinutes),
+            email_body: emailBody,
             from_name: 'Matekk Cybercore',
+            sender_name: 'Matekk Cybercore',
         });
     }
 }
