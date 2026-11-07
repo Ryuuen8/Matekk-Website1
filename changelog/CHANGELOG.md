@@ -4,6 +4,14 @@
 
 Commits included in this push:
 
+- `7e3a94e` — Reverted the dedicated OTP EmailJS template change and restored the previous OTP email parameters.
+
+Validation before push: OTP service tests, targeted oxlint, and Git whitespace checks passed.
+
+## 2026-11-07 — `main`
+
+Commits included in this push:
+
 - `d6b6b52` — Fixed OTP email delivery to use the dedicated EmailJS OTP template and its expected code/expiry fields; added a regression test.
 
 Validation before push: EmailService regression test, targeted oxlint, Nest compile, and Git whitespace checks passed. `npm run build` could not run Prisma generation because local `DATABASE_URL` is unset.
