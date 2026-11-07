@@ -8,6 +8,30 @@ Commits included in this push:
 
 Validation before push: verified backend email source matches `9431431`; `git diff --check` passed.
 
+## 2026-11-07 — `main`
+
+Commits included in this push:
+
+- `192a90a` — Routed login verification emails through the dedicated EmailJS OTP template with the documented code and expiry parameters.
+
+Validation before push: OTP email and OTP service tests passed (10 tests); targeted oxlint and Nest compile passed; Git whitespace checks passed.
+
+## 2026-11-07 — `main`
+
+Commits included in this push:
+
+- `7e3a94e` — Reverted the dedicated OTP EmailJS template change and restored the previous OTP email parameters.
+
+Validation before push: OTP service tests, targeted oxlint, and Git whitespace checks passed.
+
+## 2026-11-07 — `main`
+
+Commits included in this push:
+
+- `d6b6b52` — Fixed OTP email delivery to use the dedicated EmailJS OTP template and its expected code/expiry fields; added a regression test.
+
+Validation before push: EmailService regression test, targeted oxlint, Nest compile, and Git whitespace checks passed. `npm run build` could not run Prisma generation because local `DATABASE_URL` is unset.
+
 ## 2026-10-25 — `main`
 
 Commits included in this push:
