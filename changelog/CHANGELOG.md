@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-07 — `main`
+
+Commits included in this push:
+
+- `44a396b` — Reverted backend source changes after `9431431`, restoring that baseline while preserving Git history.
+
+Validation before push: verified backend email source matches `9431431`; `git diff --check` passed.
+
 ## 2026-10-25 — `main`
 
 Commits included in this push:
