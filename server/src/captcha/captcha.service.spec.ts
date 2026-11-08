@@ -1,4 +1,4 @@
-import { BadRequestException, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, InternalServerErrorException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CaptchaService } from './captcha.service.js';
@@ -77,8 +77,16 @@ describe('CaptchaService', () => {
       success: false,
       action: 'contact',
       score: 0.9,
+      'error-codes': ['timeout-or-duplicate'],
     }), { status: 200 }));
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     await expect(service.verify('invalid-token', 'contact')).rejects.toBeInstanceOf(BadRequestException);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('"errorCodes":["timeout-or-duplicate"]'),
+    );
+    expect(warn.mock.calls[0][0]).not.toContain('invalid-token');
+    expect(warn.mock.calls[0][0]).not.toContain('private-secret');
+    warn.mockRestore();
   });
 
   it('fails explicitly when the secret is missing', async () => {

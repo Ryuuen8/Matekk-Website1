@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +11,7 @@ type RecaptchaVerificationResponse = {
   success?: boolean;
   action?: string;
   score?: number;
+  'error-codes'?: unknown;
 };
 
 export type RecaptchaAction = 'contact' | 'training_inquiry' | 'solutions_inquiry';
@@ -17,6 +19,8 @@ export type RecaptchaAction = 'contact' | 'training_inquiry' | 'solutions_inquir
 const MINIMUM_RECAPTCHA_SCORE = 0.5;
 @Injectable()
 export class CaptchaService {
+  private readonly logger = new Logger(CaptchaService.name);
+
   constructor(private readonly config: ConfigService) {}
 
   async verify(captchaToken: string, expectedAction: RecaptchaAction): Promise<void> {
@@ -59,6 +63,22 @@ export class CaptchaService {
       || !Number.isFinite(result.score)
       || result.score < MINIMUM_RECAPTCHA_SCORE
     ) {
+      const errorCodes = Array.isArray(result['error-codes'])
+        ? result['error-codes'].filter(
+          (code): code is string => typeof code === 'string' && /^[a-z0-9-]{1,64}$/i.test(code),
+        )
+        : [];
+      const reasons = [
+        ...(result.success !== true ? ['provider-rejected'] : []),
+        ...(result.action !== expectedAction ? ['action-mismatch'] : []),
+        ...(typeof result.score !== 'number' || !Number.isFinite(result.score) ? ['invalid-score'] : []),
+        ...(typeof result.score === 'number' && Number.isFinite(result.score) && result.score < MINIMUM_RECAPTCHA_SCORE
+          ? ['score-below-threshold']
+          : []),
+      ];
+      this.logger.warn(
+        `reCAPTCHA verification rejected: ${JSON.stringify({ expectedAction, reasons, errorCodes })}`,
+      );
       throw new BadRequestException('CAPTCHA verification failed. Please complete it again.');
     }
   }
