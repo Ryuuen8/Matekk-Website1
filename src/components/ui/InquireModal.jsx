@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
+import HCaptcha from "@hcaptcha/react-hcaptcha";
 import { FLAT_COURSES } from "../training/courses";
 import { useNavigate } from "react-router-dom";
 import API_URL from "../../config/api";
-import { executeRecaptcha, RECAPTCHA_SITE_KEY } from "../../config/recaptcha";
+import { HCAPTCHA_SITE_KEY } from "../../config/hcaptcha";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 const COOLDOWN_MS = 60_000;
@@ -86,6 +87,14 @@ function useEnrollForm(onClose, initialStep = 0, initialInquiryType = null, pres
   const [status, setStatus] = useState("idle");
   const [honeypot, setHoneypot] = useState("");
   const cooldownRef = useRef(null);
+  const captchaRef = useRef(null);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const onCaptchaVerify = useCallback((token) => setCaptchaToken(token), []);
+  const onCaptchaExpire = useCallback(() => setCaptchaToken(""), []);
+  const resetCaptcha = () => {
+    captchaRef.current?.resetCaptcha();
+    setCaptchaToken("");
+  };
 
   const [trainingForm, setTrainingForm] = useState({
     funding: FUNDING_OPTIONS[0],
@@ -136,7 +145,8 @@ function useEnrollForm(onClose, initialStep = 0, initialInquiryType = null, pres
   const validateTrainingStep2 = () => {
     const e = {};
     if (!trainingForm.course) e.course = "Please select a course.";
-    if (!RECAPTCHA_SITE_KEY) e.captcha = "CAPTCHA is not configured. Please contact us directly.";
+    if (!HCAPTCHA_SITE_KEY) e.captcha = "CAPTCHA is not configured. Please contact us directly.";
+    else if (!captchaToken) e.captcha = "Please complete the CAPTCHA verification.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -158,7 +168,8 @@ function useEnrollForm(onClose, initialStep = 0, initialInquiryType = null, pres
     if (!solutionsForm.timeline) e.timeline = "Please select a timeline.";
     if (!solutionsForm.budget) e.budget = "Please select a budget range.";
     if (!solutionsForm.projectDesc.trim()) e.projectDesc = "Please describe your project.";
-    if (!RECAPTCHA_SITE_KEY) e.captcha = "CAPTCHA is not configured. Please contact us directly.";
+    if (!HCAPTCHA_SITE_KEY) e.captcha = "CAPTCHA is not configured. Please contact us directly.";
+    else if (!captchaToken) e.captcha = "Please complete the CAPTCHA verification.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -170,10 +181,16 @@ function useEnrollForm(onClose, initialStep = 0, initialInquiryType = null, pres
 
   const back = () => {
     setErrors({});
+    resetCaptcha();
     step === 1 && initialInquiryType ? onClose() : setStep(1);
   };
 
-  const backToSelection = () => { setErrors({}); setStep(0); setInquiryType(null); };
+  const backToSelection = () => {
+    setErrors({});
+    resetCaptcha();
+    setStep(0);
+    setInquiryType(null);
+  };
 
   const checkRateLimit = () => {
     const lastSent = localStorage.getItem("lastModalSubmit");
@@ -204,20 +221,6 @@ function useEnrollForm(onClose, initialStep = 0, initialInquiryType = null, pres
     if (!valid) return;
 
     setStatus("loading");
-    const captchaAction = inquiryType === "training" ? "training_inquiry" : "solutions_inquiry";
-    let captchaToken;
-    try {
-      captchaToken = await executeRecaptcha(captchaAction);
-    } catch (error) {
-      setStatus("idle");
-      setErrors({
-        captcha: error instanceof Error
-          ? error.message
-          : "CAPTCHA could not load. Check your connection and try again.",
-      });
-      return;
-    }
-
     setErrors((current) => ({ ...current, captcha: "" }));
     try {
       const payload = inquiryType === "training"
@@ -257,13 +260,16 @@ function useEnrollForm(onClose, initialStep = 0, initialInquiryType = null, pres
       if (response.status === 400) {
         setStatus("idle");
         setErrors({ captcha: "CAPTCHA verification failed. Please try again." });
+        resetCaptcha();
         return;
       }
       if (!response.ok) throw new Error("Inquiry submission failed.");
 
+      resetCaptcha();
       localStorage.setItem("lastModalSubmit", Date.now());
       setStatus("success");
     } catch {
+      resetCaptcha();
       setStatus("error");
     }
   };
@@ -275,6 +281,7 @@ function useEnrollForm(onClose, initialStep = 0, initialInquiryType = null, pres
     setStatus("idle");
     setErrors({});
     setHoneypot("");
+    resetCaptcha();
     setTrainingForm({
       funding: FUNDING_OPTIONS[0], attendees: "", name: "", email: "",
       phone: "", course: resolvedCourse, message: "",
@@ -288,6 +295,7 @@ function useEnrollForm(onClose, initialStep = 0, initialInquiryType = null, pres
   return {
     step, inquiryType, trainingForm, solutionsForm, errors, status,
     cooldownRef, honeypot, setHoneypot,
+    captchaRef, onCaptchaVerify, onCaptchaExpire,
     updateTraining, updateSolutionsEvent, selectInquiryType,
     next, back, backToSelection, submit, reset, onClose,
   };
@@ -351,11 +359,17 @@ function SelectField({ label, id, options, error, value, onChange, placeholder }
   );
 }
 
-function CaptchaField({ error }) {
+function CaptchaField({ error, captchaRef, onCaptchaVerify, onCaptchaExpire }) {
   return (
     <div className="flex flex-col gap-1">
-      {RECAPTCHA_SITE_KEY ? (
-        <p className="text-xs text-gray-500">Protected by Google reCAPTCHA.</p>
+      {HCAPTCHA_SITE_KEY ? (
+        <HCaptcha
+          ref={captchaRef}
+          sitekey={HCAPTCHA_SITE_KEY}
+          onVerify={onCaptchaVerify}
+          onExpire={onCaptchaExpire}
+          theme="light"
+        />
       ) : (
         <p className="text-sm text-gray-500">
           CAPTCHA is temporarily unavailable. Please contact us directly.
@@ -483,7 +497,10 @@ function TrainingStep1({ trainingForm, errors, updateTraining, next, backToSelec
   );
 }
 
-function TrainingStep2({ trainingForm, errors, updateTraining, back, submit, status }) {
+function TrainingStep2({
+  trainingForm, errors, updateTraining, back, submit, status,
+  captchaRef, onCaptchaVerify, onCaptchaExpire,
+}) {
   const isLoading = status === "loading";
   return (
     <>
@@ -506,7 +523,12 @@ function TrainingStep2({ trainingForm, errors, updateTraining, back, submit, sta
             className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none
               resize-none transition hover:border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
-        <CaptchaField error={errors.captcha} />
+        <CaptchaField
+          error={errors.captcha}
+          captchaRef={captchaRef}
+          onCaptchaVerify={onCaptchaVerify}
+          onCaptchaExpire={onCaptchaExpire}
+        />
       </div>
       {status === "error" && <ErrorBanner />}
       <p className="mt-4 text-xs text-gray-400 leading-relaxed">
@@ -553,7 +575,10 @@ function SolutionsStep1({ solutionsForm, errors, updateSolutionsEvent, next, bac
   );
 }
 
-function SolutionsStep2({ solutionsForm, errors, updateSolutionsEvent, back, submit, status }) {
+function SolutionsStep2({
+  solutionsForm, errors, updateSolutionsEvent, back, submit, status,
+  captchaRef, onCaptchaVerify, onCaptchaExpire,
+}) {
   const isLoading = status === "loading";
   return (
     <>
@@ -610,7 +635,12 @@ function SolutionsStep2({ solutionsForm, errors, updateSolutionsEvent, back, sub
             className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none
               resize-none transition hover:border-blue-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         </div>
-        <CaptchaField error={errors.captcha} />
+        <CaptchaField
+          error={errors.captcha}
+          captchaRef={captchaRef}
+          onCaptchaVerify={onCaptchaVerify}
+          onCaptchaExpire={onCaptchaExpire}
+        />
       </div>
       {status === "error" && <ErrorBanner />}
       <p className="mt-4 text-xs text-gray-400 leading-relaxed">

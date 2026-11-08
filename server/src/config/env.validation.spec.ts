@@ -7,11 +7,11 @@ const requiredSupabaseConfig = {
 };
 
 describe('environment validation', () => {
-    it('uses Google test CAPTCHA credentials outside production', () => {
+    it('uses hCaptcha test credentials outside production', () => {
         const { error, value } = envValidationSchema.validate(requiredSupabaseConfig);
 
         expect(error).toBeUndefined();
-        expect(value.RECAPTCHA_SECRET_KEY).toBe('6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuZZevZx9c5');
+        expect(value.HCAPTCHA_SECRET_KEY).toBe('0x0000000000000000000000000000000000000000');
     });
 
     it('provides a development JWT secret and empty CORS allowlist by default', () => {
@@ -54,7 +54,7 @@ describe('environment validation', () => {
         });
 
         expect(error).toBeUndefined();
-        expect(value.RECAPTCHA_SECRET_KEY).toBeUndefined();
+        expect(value.HCAPTCHA_SECRET_KEY).toBeUndefined();
     });
 
     it('rejects production CORS values that are not HTTPS origins', () => {

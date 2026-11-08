@@ -7,31 +7,26 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-type RecaptchaVerificationResponse = {
+type HcaptchaVerificationResponse = {
   success?: boolean;
-  action?: string;
-  score?: number;
   'error-codes'?: unknown;
 };
 
-export type RecaptchaAction = 'contact' | 'training_inquiry' | 'solutions_inquiry';
-
-const MINIMUM_RECAPTCHA_SCORE = 0.5;
 @Injectable()
 export class CaptchaService {
   private readonly logger = new Logger(CaptchaService.name);
 
   constructor(private readonly config: ConfigService) {}
 
-  async verify(captchaToken: string, expectedAction: RecaptchaAction): Promise<void> {
-    const secret = this.config.get<string>('RECAPTCHA_SECRET_KEY')?.trim();
+  async verify(captchaToken: string): Promise<void> {
+    const secret = this.config.get<string>('HCAPTCHA_SECRET_KEY')?.trim();
     if (!secret) {
       throw new InternalServerErrorException('CAPTCHA verification is not configured.');
     }
 
     let response: Response;
     try {
-      response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      response = await fetch('https://api.hcaptcha.com/siteverify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ secret, response: captchaToken }),
@@ -45,40 +40,25 @@ export class CaptchaService {
       throw new ServiceUnavailableException('CAPTCHA verification is temporarily unavailable.');
     }
 
-    let result: RecaptchaVerificationResponse;
+    let result: HcaptchaVerificationResponse;
     try {
       const body: unknown = await response.json();
       if (!body || typeof body !== 'object' || !('success' in body)) {
         throw new Error('Invalid CAPTCHA verification response.');
       }
-      result = body as RecaptchaVerificationResponse;
+      result = body as HcaptchaVerificationResponse;
     } catch {
       throw new ServiceUnavailableException('CAPTCHA verification returned an invalid response.');
     }
 
-    if (
-      result.success !== true
-      || result.action !== expectedAction
-      || typeof result.score !== 'number'
-      || !Number.isFinite(result.score)
-      || result.score < MINIMUM_RECAPTCHA_SCORE
-    ) {
+    if (result.success !== true) {
       const errorCodes = Array.isArray(result['error-codes'])
         ? result['error-codes'].filter(
           (code): code is string => typeof code === 'string' && /^[a-z0-9-]{1,64}$/i.test(code),
         )
         : [];
-      const reasons = [
-        ...(result.success !== true ? ['provider-rejected'] : []),
-        ...(result.action !== expectedAction ? ['action-mismatch'] : []),
-        ...(typeof result.score !== 'number' || !Number.isFinite(result.score) ? ['invalid-score'] : []),
-        ...(typeof result.score === 'number' && Number.isFinite(result.score) && result.score < MINIMUM_RECAPTCHA_SCORE
-          ? ['score-below-threshold']
-          : []),
-      ];
-      this.logger.warn(
-        `reCAPTCHA verification rejected: ${JSON.stringify({ expectedAction, reasons, errorCodes })}`,
-      );
+      const reasons = ['provider-rejected'];
+      this.logger.warn(`hCaptcha verification rejected: ${JSON.stringify({ reasons, errorCodes })}`);
       throw new BadRequestException('CAPTCHA verification failed. Please complete it again.');
     }
   }

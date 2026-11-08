@@ -35,10 +35,10 @@ $ npm install
 
 Prisma Client is generated automatically before building or starting the server.
 Make sure `DATABASE_URL` is set in `server/.env`.
-Configure `RECAPTCHA_SECRET_KEY` on the backend and the matching
-`VITE_RECAPTCHA_SITE_KEY` on the frontend for the deployed domain. Keep the
+Configure `HCAPTCHA_SECRET_KEY` on the backend and the matching
+`VITE_HCAPTCHA_SITE_KEY` on the frontend for the deployed domain. Keep the
 secret key only in backend environment settings. Local development and tests
-use Google's public test key; never deploy test keys.
+use hCaptcha test credentials; never deploy test keys.
 Apply pending database migrations with `npx prisma migrate deploy` before
 deploying server code that depends on schema changes. Session-version tracking
 uses a database migration, and existing sign-in cookies become invalid when
@@ -83,10 +83,9 @@ requests are allowed from the frontend origin
 `https://matekk-website1-q7cp.vercel.app` by default. If the frontend domain
 changes or additional origins are needed, configure `CORS_ORIGINS` as a
 comma-separated list of allowed origins.
-Set `RECAPTCHA_SECRET_KEY` to the backend secret paired with the frontend's
-Google reCAPTCHA v3 site key. The API verifies the expected form action and
-requires a score of at least 0.5; keep the secret only in backend environment
-settings.
+Set `HCAPTCHA_SECRET_KEY` to the backend secret paired with the frontend's
+hCaptcha site key. The API verifies tokens with hCaptcha's siteverify endpoint;
+keep the secret only in backend environment settings.
 Observe telemetry is optional. To enable it, set both `OBSERVE_APP_KEY` and
 `OBSERVE_APP_SECRET`; otherwise telemetry is disabled. `OBSERVE_SERVICE_ID`
 defaults to `server`.

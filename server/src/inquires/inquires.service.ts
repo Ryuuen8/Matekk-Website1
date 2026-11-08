@@ -17,10 +17,7 @@ export class InquiresService {
 
     async create(data: CreateInquirtDto) {
         const { captchaToken, ...inquiry } = data;
-        const action = data.inquiry_type === 'Training Inquiry'
-            ? 'training_inquiry'
-            : 'solutions_inquiry';
-        await this.captchaService.verify(captchaToken, action);
+        await this.captchaService.verify(captchaToken);
         return this.prisma.inquires.create({ data: inquiry });
     }
 

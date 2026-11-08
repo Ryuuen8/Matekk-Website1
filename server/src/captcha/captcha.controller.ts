@@ -10,7 +10,7 @@ export class CaptchaController {
   @Public()
   @Post('verify')
   async verify(@Body() body: VerifyCaptchaDto): Promise<{ success: true }> {
-    await this.captchaService.verify(body.captchaToken, body.captchaAction);
+    await this.captchaService.verify(body.captchaToken);
     return { success: true };
   }
 }

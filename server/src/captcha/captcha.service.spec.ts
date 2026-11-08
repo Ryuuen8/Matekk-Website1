@@ -25,18 +25,16 @@ describe('CaptchaService', () => {
     vi.unstubAllGlobals();
   });
 
-  it('accepts a token only when Google confirms its action and score', async () => {
+  it('accepts a token when hCaptcha confirms it', async () => {
     getConfig.mockReturnValue('private-secret');
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       success: true,
-      action: 'contact',
-      score: 0.9,
     }), { status: 200 }));
 
-    await expect(service.verify('captcha-token', 'contact')).resolves.toBeUndefined();
+    await expect(service.verify('captcha-token')).resolves.toBeUndefined();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://www.google.com/recaptcha/api/siteverify',
+      'https://api.hcaptcha.com/siteverify',
       expect.objectContaining({
         method: 'POST',
         body: new URLSearchParams({
@@ -47,42 +45,24 @@ describe('CaptchaService', () => {
     );
   });
 
-  it('rejects invalid tokens, mismatched actions, and low scores', async () => {
+  it('rejects tokens that hCaptcha does not accept', async () => {
     getConfig.mockReturnValue('private-secret');
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       success: false,
-      action: 'contact',
-      score: 0.9,
     }), { status: 200 }));
-    await expect(service.verify('invalid-token', 'contact')).rejects.toBeInstanceOf(BadRequestException);
-
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-      action: 'solutions_inquiry',
-      score: 0.9,
-    }), { status: 200 }));
-    await expect(service.verify('captcha-token', 'contact')).rejects.toBeInstanceOf(BadRequestException);
-
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-      action: 'contact',
-      score: 0.4,
-    }), { status: 200 }));
-    await expect(service.verify('captcha-token', 'contact')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.verify('invalid-token')).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects a token when Google does not accept it', async () => {
+  it('logs hCaptcha error codes without logging the token or secret', async () => {
     getConfig.mockReturnValue('private-secret');
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       success: false,
-      action: 'contact',
-      score: 0.9,
       'error-codes': ['timeout-or-duplicate'],
     }), { status: 200 }));
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    await expect(service.verify('invalid-token', 'contact')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.verify('invalid-token')).rejects.toBeInstanceOf(BadRequestException);
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('"errorCodes":["timeout-or-duplicate"]'),
+      expect.stringContaining('hCaptcha verification rejected: {"reasons":["provider-rejected"],"errorCodes":["timeout-or-duplicate"]}'),
     );
     expect(warn.mock.calls[0][0]).not.toContain('invalid-token');
     expect(warn.mock.calls[0][0]).not.toContain('private-secret');
@@ -92,14 +72,14 @@ describe('CaptchaService', () => {
   it('fails explicitly when the secret is missing', async () => {
     getConfig.mockReturnValue(undefined);
 
-    await expect(service.verify('captcha-token', 'contact')).rejects.toBeInstanceOf(InternalServerErrorException);
+    await expect(service.verify('captcha-token')).rejects.toBeInstanceOf(InternalServerErrorException);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('rejects when Google cannot be reached', async () => {
+  it('rejects when hCaptcha cannot be reached', async () => {
     getConfig.mockReturnValue('private-secret');
-    fetchMock.mockRejectedValue(new Error('Google is unavailable'));
+    fetchMock.mockRejectedValue(new Error('hCaptcha is unavailable'));
 
-    await expect(service.verify('captcha-token', 'contact')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(service.verify('captcha-token')).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });

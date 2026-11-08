@@ -36,7 +36,7 @@ describe('InquiresService', () => {
     expect(service).toBeDefined();
   });
 
-  it('verifies the matching CAPTCHA action and does not store the token', async () => {
+  it('verifies CAPTCHA and does not store the token', async () => {
     createInquiry.mockResolvedValue({ id: 1 });
     const inquiry = {
       inquiry_type: 'Training Inquiry' as const,
@@ -50,7 +50,7 @@ describe('InquiresService', () => {
 
     await expect(service.create(inquiry)).resolves.toEqual({ id: 1 });
 
-    expect(verifyCaptcha).toHaveBeenCalledWith('verified-token', 'training_inquiry');
+    expect(verifyCaptcha).toHaveBeenCalledWith('verified-token');
     expect(createInquiry).toHaveBeenCalledWith({
       data: {
         inquiry_type: 'Training Inquiry',
@@ -63,7 +63,7 @@ describe('InquiresService', () => {
     });
   });
 
-  it('uses the solutions action for ICT inquiries', async () => {
+  it('verifies CAPTCHA for ICT inquiries', async () => {
     createInquiry.mockResolvedValue({ id: 2 });
 
     await service.create({
@@ -76,7 +76,7 @@ describe('InquiresService', () => {
       message: 'Please send details.',
     });
 
-    expect(verifyCaptcha).toHaveBeenCalledWith('verified-token', 'solutions_inquiry');
+    expect(verifyCaptcha).toHaveBeenCalledWith('verified-token');
   });
 
   it('does not store an inquiry if CAPTCHA verification fails', async () => {
