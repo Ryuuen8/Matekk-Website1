@@ -1,5 +1,5 @@
 
-import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
 import { UsersService } from '../users/users.service.js';
 import { JwtService } from '@nestjs/jwt';
@@ -303,6 +303,16 @@ export class AuthService {
     async updateProfile(userId: number, dto: UpdateProfileDto) {
         const normalize = (value: string | null | undefined) =>
             typeof value === 'string' ? value.trim() : value;
+        if (dto.role !== undefined) {
+            const user = await this.prisma.users.findUnique({
+                where: { id: userId },
+                select: { role: true },
+            });
+            if (!user) throw new UnauthorizedException();
+            if (user.role.trim().toLowerCase() !== 'admin') {
+                throw new ForbiddenException('Only administrators can change account roles.');
+            }
+        }
         const username = normalize(dto.username);
         const email = normalize(dto.email);
         if (username) {
@@ -324,6 +334,8 @@ export class AuthService {
             ...(dto.username !== undefined ? { username: dto.username.trim() } : {}),
             ...(dto.first_name !== undefined ? { first_name: normalize(dto.first_name) ?? '' } : {}),
             ...(dto.last_name !== undefined ? { last_name: normalize(dto.last_name) ?? '' } : {}),
+            ...(dto.display_name !== undefined ? { display_name: normalize(dto.display_name) ?? '' } : {}),
+            ...(dto.role !== undefined ? { role: dto.role } : {}),
             ...(dto.email !== undefined ? { email } : {}),
             ...(dto.birth_date !== undefined ? { birth_date: new Date(dto.birth_date) } : {}),
             ...(dto.gender !== undefined ? { gender: normalize(dto.gender) || null } : {}),

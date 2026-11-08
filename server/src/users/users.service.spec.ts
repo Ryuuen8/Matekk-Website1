@@ -204,6 +204,7 @@ describe('UsersService', () => {
         email: true,
         first_name: true,
         last_name: true,
+        display_name: true,
         birth_date: true,
         gender: true,
         city_province: true,
@@ -235,6 +236,7 @@ describe('UsersService', () => {
       sessionVersion: 0,
       email: 'ccna@example.com',
       programs_enrolled: '',
+      display_name: 'Network learner',
       enrollments: [{
         program: {
           name: 'CCNA',
@@ -254,6 +256,7 @@ describe('UsersService', () => {
       expiration_date: null,
       pending_status: 'Active',
       email: 'ccna@example.com',
+      display_name: 'Network learner',
       module_enrolled: 'CCNA, CCNA Cybersecurity, CCNA Automation',
     });
   });
@@ -323,6 +326,7 @@ describe('UsersService', () => {
       email: 'profile@example.com',
       first_name: 'Profile',
       last_name: 'User',
+      display_name: 'Friendly name',
       birth_date: birthDate,
       gender: 'Female',
       city_province: 'Rizal',
@@ -338,6 +342,7 @@ describe('UsersService', () => {
       email: 'profile@example.com',
       first_name: 'Profile',
       last_name: 'User',
+      display_name: 'Friendly name',
       birth_date: birthDate,
       gender: 'Female',
       city_province: 'Rizal',

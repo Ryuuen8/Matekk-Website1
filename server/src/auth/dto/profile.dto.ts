@@ -1,4 +1,4 @@
-import { IsDateString, IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsDateString, IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class UpdateProfileDto {
     @IsOptional() @IsString() @MinLength(3) @MaxLength(30) @Matches(/^[a-zA-Z0-9._-]+$/)
@@ -9,6 +9,12 @@ export class UpdateProfileDto {
 
     @IsOptional() @IsString() @MaxLength(80)
     last_name?: string;
+
+    @IsOptional() @IsString() @MaxLength(80)
+    display_name?: string;
+
+    @IsOptional() @IsIn(['Student', 'Admin'])
+    role?: string;
 
     @IsOptional() @IsEmail() @MaxLength(254)
     email?: string | null;

@@ -13,6 +13,7 @@ export type User = {
     email?: string;
     first_name?: string;
     last_name?: string;
+    display_name?: string;
     birth_date?: Date;
     gender?: string | null;
     city_province?: string;
@@ -156,6 +157,7 @@ export class UsersService {
                 email: true,
                 first_name: true,
                 last_name: true,
+                display_name: true,
                 birth_date: true,
                 gender: true,
                 city_province: true,
@@ -192,6 +194,7 @@ export class UsersService {
             email: databaseUser.email ?? undefined,
             first_name: databaseUser.first_name,
             last_name: databaseUser.last_name,
+            display_name: databaseUser.display_name,
             birth_date: databaseUser.birth_date,
             gender: databaseUser.gender,
             city_province: databaseUser.city_province,
@@ -218,6 +221,7 @@ export class UsersService {
                 email: true,
                 first_name: true,
                 last_name: true,
+                display_name: true,
                 birth_date: true,
                 gender: true,
                 city_province: true,
@@ -252,6 +256,7 @@ export class UsersService {
             email: databaseUser.email ?? undefined,
             first_name: databaseUser.first_name,
             last_name: databaseUser.last_name,
+            display_name: databaseUser.display_name,
             birth_date: databaseUser.birth_date,
             gender: databaseUser.gender,
             city_province: databaseUser.city_province,

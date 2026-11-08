@@ -300,6 +300,7 @@ describe('AuthService', () => {
 
     await expect(mocks.service.updateProfile(user.userId, {
       first_name: ' Sample ',
+      display_name: ' Friendly name ',
       phone_number: ' 555-1234 ',
     })).resolves.toMatchObject({
       userId: user.userId,
@@ -309,9 +310,24 @@ describe('AuthService', () => {
 
     expect(mocks.update).toHaveBeenCalledWith({
       where: { id: user.userId },
-      data: { first_name: 'Sample', phone_number: '555-1234' },
+      data: { first_name: 'Sample', display_name: 'Friendly name', phone_number: '555-1234' },
     });
     expect(mocks.findById).toHaveBeenCalledWith(user.userId);
+  });
+
+  it('prevents students from changing their role and allows admins to update it', async () => {
+    const studentMocks = createService();
+    await expect(studentMocks.service.updateProfile(user.userId, { role: 'Admin' }))
+      .rejects.toThrow('Only administrators can change account roles.');
+    expect(studentMocks.update).not.toHaveBeenCalled();
+
+    const adminMocks = createService();
+    adminMocks.findUnique.mockResolvedValue({ ...user, role: 'Admin' });
+    await adminMocks.service.updateProfile(user.userId, { role: 'Student' });
+    expect(adminMocks.update).toHaveBeenCalledWith({
+      where: { id: user.userId },
+      data: { role: 'Student' },
+    });
   });
 
   it('stores only a correctly signed JPEG profile photo within the size limit', async () => {
