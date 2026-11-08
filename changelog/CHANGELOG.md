@@ -4,6 +4,14 @@
 
 Commits included in this push:
 
+- `26e7744` — Added redacted reCAPTCHA rejection diagnostics, including provider error codes and rejection reasons, without logging tokens or secrets.
+
+Validation before push: CAPTCHA service tests passed (5 tests); targeted oxlint and Nest build passed; Git whitespace checks passed.
+
+## 2026-11-08 — `main`
+
+Commits included in this push:
+
 - `cf90e4f` — Added display-name support to the profile API, included the Users table migration, and restricted role changes to administrators.
 
 Validation before push: 32 focused auth/users tests passed; backend lint passed with one existing duplicate-key warning; Nest build passed with placeholder database URLs; Git whitespace checks passed.
