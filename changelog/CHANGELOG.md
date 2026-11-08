@@ -4,6 +4,14 @@
 
 Commits included in this push:
 
+- `c6b0028` — Switched contact and inquiry CAPTCHA widgets and server verification from Google reCAPTCHA to hCaptcha. Configure `VITE_HCAPTCHA_SITE_KEY` on the frontend and `HCAPTCHA_SECRET_KEY` on the backend.
+
+Validation before push: 22 focused backend tests passed; frontend ESLint and production build passed; backend oxlint and Nest build passed; Git whitespace checks passed.
+
+## 2026-11-08 — `main`
+
+Commits included in this push:
+
 - `26e7744` — Added redacted reCAPTCHA rejection diagnostics, including provider error codes and rejection reasons, without logging tokens or secrets.
 
 Validation before push: CAPTCHA service tests passed (5 tests); targeted oxlint and Nest build passed; Git whitespace checks passed.
